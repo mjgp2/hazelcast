@@ -27,6 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.mapdb.Fun;
 import org.mapdb.Fun.Tuple3;
 
+import com.carrotsearch.hppc.LongArrayList;
 import com.hazelcast.nio.serialization.Data;
 import com.hazelcast.spi.NodeEngine;
 
@@ -37,13 +38,14 @@ public class MapDbSetWrapper implements Set<MultiMapRecord> {
 
     private AtomicInteger counter = new AtomicInteger();
     private final NavigableSet<Tuple3<Data, Data, Long>> navigableSet;
+    private final LongArrayList recordIdSet = new LongArrayList(1);
     private final Data key;
     private NodeEngine nodeEngine;
 
     public MapDbSetWrapper(NodeEngine nodeEngine,
-            NavigableSet<Tuple3<Data, Data, Long>> navigableSet2,
+            NavigableSet<Tuple3<Data, Data, Long>> navigableSet,
             Data key) {
-        this.navigableSet = navigableSet2;
+        this.navigableSet = navigableSet;
         this.key = key;
         this.nodeEngine = nodeEngine;
     }
@@ -174,6 +176,7 @@ public class MapDbSetWrapper implements Set<MultiMapRecord> {
         }
 
         navigableSet.add(Fun.t3(key, data, e.getRecordId()));
+        recordIdSet.add(e.getRecordId());
         counter.incrementAndGet();
         return true;
     }
@@ -191,12 +194,13 @@ public class MapDbSetWrapper implements Set<MultiMapRecord> {
     }
 
     private boolean remove(Data d) {
-        SortedSet<Tuple3<Data, Data, Long>> set = subSet(navigableSet, key, d);
-        if (set.isEmpty()) {
+        Iterator<Tuple3<Data, Data, Long>> iterator = filter(navigableSet, key, d).iterator();
+        if ( ! iterator.hasNext() ) {
             return false;
         }
 
-        set.clear();
+        recordIdSet.removeFirstOccurrence(iterator.next().c);
+        iterator.remove();
         counter.decrementAndGet();
 
         return true;
@@ -240,6 +244,10 @@ public class MapDbSetWrapper implements Set<MultiMapRecord> {
     public void clear() {
         subSet(navigableSet, key, null).clear();
         counter.set(0);
+    }
+
+    public boolean containsRecordId(long recordId) {
+        return recordIdSet.contains(recordId);
     }
 
 }

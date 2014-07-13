@@ -37,6 +37,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.mapdb.HTreeMap;
+import org.mapdb.Serializer;
 
 import com.hazelcast.concurrent.lock.LockService;
 import com.hazelcast.concurrent.lock.LockStore;
@@ -52,7 +53,6 @@ import com.hazelcast.map.record.Record;
 import com.hazelcast.map.record.RecordFactory;
 import com.hazelcast.nio.serialization.Data;
 import com.hazelcast.nio.serialization.MapDBDataSerializer;
-import com.hazelcast.nio.serialization.MapDBLongSerializer;
 import com.hazelcast.nio.serialization.SerializationService;
 import com.hazelcast.query.impl.IndexService;
 import com.hazelcast.query.impl.QueryEntry;
@@ -154,7 +154,7 @@ public class DefaultRecordStore implements RecordStore {
         if ( recordFactory.getStorageFormat() == InMemoryFormat.BINARY ) {
             return ((HazelcastInstanceImpl) mapService.getNodeEngine().getHazelcastInstance()).getMapDb()
                     .createHashMap(mapDbName)
-                    .keySerializer(new MapDBLongSerializer())
+                    .keySerializer(Serializer.LONG)
                     .valueSerializer(new MapDBDataSerializer(mapService.getNodeEngine().getSerializationService()))
                     .counterEnable()
                     .make();

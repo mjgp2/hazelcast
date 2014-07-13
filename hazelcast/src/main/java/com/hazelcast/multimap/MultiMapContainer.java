@@ -16,27 +16,35 @@
 
 package com.hazelcast.multimap;
 
-import com.hazelcast.concurrent.lock.LockService;
-import com.hazelcast.spi.DefaultObjectNamespace;
-import com.hazelcast.concurrent.lock.LockStore;
-import com.hazelcast.config.MultiMapConfig;
-import com.hazelcast.instance.HazelcastInstanceImpl;
-import com.hazelcast.nio.serialization.Data;
-import com.hazelcast.nio.serialization.MapDBDataSerializer;
-import com.hazelcast.nio.serialization.MapDBLongSerializer;
-import com.hazelcast.spi.NodeEngine;
-import com.hazelcast.util.Clock;
-
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
+import java.util.NavigableSet;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.mapdb.BTreeKeySerializer;
 import org.mapdb.BTreeKeySerializer.Tuple3KeySerializer;
-import org.mapdb.Fun.Tuple2;
 import org.mapdb.Fun.Tuple3;
+import org.mapdb.Serializer;
+
+import com.hazelcast.concurrent.lock.LockService;
+import com.hazelcast.concurrent.lock.LockStore;
+import com.hazelcast.config.MultiMapConfig;
+import com.hazelcast.instance.HazelcastInstanceImpl;
+import com.hazelcast.nio.serialization.Data;
+import com.hazelcast.nio.serialization.MapDBDataSerializer;
+import com.hazelcast.spi.DefaultObjectNamespace;
+import com.hazelcast.spi.NodeEngine;
+import com.hazelcast.util.Clock;
 
 /**
  * @author ali 1/2/13
@@ -64,10 +72,12 @@ public class MultiMapContainer {
     final AtomicLong lastUpdateTime = new AtomicLong();
     final long creationTime;
 
-    private NavigableSet<Tuple3<Data, Data, Long>> navigableSet;
-
-    private String mapDbName;
-
+    // START MAPDB VARS
+    private final NavigableSet<Tuple3<Data, Data, Long>> dataSet;
+    private final String mapDbName;
+    private final String mapDbRecordName;
+    // END MAPDB VARS
+    
     public MultiMapContainer(String name, MultiMapService service, int partitionId) {
         this.name = name;
         this.service = service;
@@ -75,7 +85,6 @@ public class MultiMapContainer {
         this.partitionId = partitionId;
         this.config = nodeEngine.getConfig().findMultiMapConfig(name);
         
-        this.mapDbName = name+'-'+partitionId;
 
         this.lockNamespace = new DefaultObjectNamespace(MultiMapService.SERVICE_NAME, name);
         final LockService lockService = nodeEngine.getSharedService(LockService.SERVICE_NAME);
@@ -83,9 +92,15 @@ public class MultiMapContainer {
         creationTime = Clock.currentTimeMillis();
         
         if ( config.isBinary() ) {
+            this.mapDbName = name+'-'+partitionId;
+            this.mapDbRecordName = name+'-'+partitionId+"-records";
             BTreeKeySerializer<Tuple3<Data, Data, Long>> serializer = 
-                    new Tuple3KeySerializer<Data, Data, Long>(null, null, new MapDBDataSerializer(service.getSerializationService()), new MapDBDataSerializer(service.getSerializationService()), new MapDBLongSerializer());
-            this.navigableSet = ((HazelcastInstanceImpl) nodeEngine.getHazelcastInstance()).getMapDb().createTreeSet(mapDbName).serializer(serializer).make();
+                    new Tuple3KeySerializer<Data, Data, Long>(null, null, new MapDBDataSerializer(service.getSerializationService()), new MapDBDataSerializer(service.getSerializationService()), Serializer.LONG);
+            this.dataSet = ((HazelcastInstanceImpl) nodeEngine.getHazelcastInstance()).getMapDb().createTreeSet(mapDbName).serializer(serializer).make();
+        } else {
+            this.mapDbName = null;
+            this.mapDbRecordName = null;
+            this.dataSet = null;
         }
     }
 
@@ -127,7 +142,7 @@ public class MultiMapContainer {
             Collection<MultiMapRecord> coll;
             if (config.getValueCollectionType().equals(MultiMapConfig.ValueCollectionType.SET)) {
                 if ( config.isBinary() ) {
-                    coll = new MapDbSetWrapper(nodeEngine, navigableSet, dataKey);
+                    coll = new MapDbSetWrapper(nodeEngine, dataSet, dataKey);
                 } else {
                     coll = new HashSet<MultiMapRecord>(10);
                 }
@@ -255,7 +270,7 @@ public class MultiMapContainer {
             lockService.clearLockStore(partitionId, lockNamespace);
         }
         multiMapWrappers.clear();
-        if ( navigableSet != null ) {
+        if ( dataSet != null ) {
             ((HazelcastInstanceImpl) nodeEngine.getHazelcastInstance()).getMapDb().delete(mapDbName);
         }
     }

@@ -58,6 +58,11 @@ public class MultiMapWrapper {
     }
 
     public boolean containsRecordId(long recordId){
+        
+        if ( collection instanceof MapDbSetWrapper ) {
+            return ((MapDbSetWrapper) collection).containsRecordId(recordId);
+        }
+        
         for (MultiMapRecord record: collection){
             if (record.getRecordId() == recordId){
                 return true;

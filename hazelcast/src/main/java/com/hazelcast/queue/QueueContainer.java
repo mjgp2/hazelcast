@@ -31,6 +31,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
+import org.mapdb.Serializer;
+
 import com.hazelcast.config.QueueConfig;
 import com.hazelcast.config.QueueStoreConfig;
 import com.hazelcast.core.HazelcastException;
@@ -42,7 +44,6 @@ import com.hazelcast.nio.ObjectDataOutput;
 import com.hazelcast.nio.serialization.Data;
 import com.hazelcast.nio.serialization.IdentifiedDataSerializable;
 import com.hazelcast.nio.serialization.MapDBDataSerializer;
-import com.hazelcast.nio.serialization.MapDBLongSerializer;
 import com.hazelcast.spi.NodeEngine;
 import com.hazelcast.transaction.TransactionException;
 import com.hazelcast.util.Clock;
@@ -99,7 +100,7 @@ public class QueueContainer implements IdentifiedDataSerializable {
         offerWaitNotifyKey = new QueueWaitNotifyKey(name, "offer");
         dataMap = ((HazelcastInstanceImpl)nodeEngine.getHazelcastInstance()).getMapDb()
                 .createHashMap(mapDbName)
-                .keySerializer(new MapDBLongSerializer())
+                .keySerializer(Serializer.LONG)
                 .valueSerializer(new MapDBDataSerializer(nodeEngine.getSerializationService()))
                 .counterEnable()
                 .make();
