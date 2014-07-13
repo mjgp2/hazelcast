@@ -171,11 +171,18 @@
 
     <dependencies>
     
+    	<!-- Added MapDB impl deps -->
         <dependency>
             <groupId>com.carrotsearch</groupId>
             <artifactId>hppc</artifactId>
             <version>0.6.0</version>
         </dependency>
+        <dependency>
+            <groupId>org.mapdb</groupId>
+            <artifactId>mapdb</artifactId>
+            <version>1.0.4</version>
+        </dependency>
+        <!-- End MapDB impl deps -->
     
         <dependency>
             <groupId>log4j</groupId>
@@ -256,12 +263,6 @@
             <artifactId>annotations</artifactId>
             <version>1.3.2</version>
             <scope>compile</scope>
-        </dependency>
-        <dependency>
-        	<groupId>org.mapdb</groupId>
-        	<artifactId>mapdb</artifactId>
-        	<version>1.0.4</version>
-        	<scope>provided</scope>
         </dependency>
     </dependencies>
 

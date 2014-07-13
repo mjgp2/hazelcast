@@ -110,6 +110,8 @@
                             <artifactSet>
                                 <includes>
                                     <include>com.hazelcast:*:*</include>
+                                    <include>com.carrotsearch:hppc:*</include>
+                                    <include>org.mapdb:*:*</include>
                                 </includes>
                                 <excludes>
                                     <exclude>com.hazelcast:hazelcast-all:*</exclude>
