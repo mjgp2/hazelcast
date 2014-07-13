@@ -404,13 +404,13 @@ public class MapService implements ManagedService, MigrationAwareService,
         clearPartitionData(partitionId);
     }
 
-    public Record createRecord(String name, Data dataKey, Object value, long ttl) {
-        return createRecord(name, dataKey, value, ttl, true);
+    public Record createRecord(RecordStore recordStore, String name, Data dataKey, Object value, long ttl) {
+        return createRecord(recordStore, name, dataKey, value, ttl, true);
     }
 
-    public Record createRecord(String name, Data dataKey, Object value, long ttl, boolean shouldSchedule) {
+    public Record createRecord(RecordStore recordStore, String name, Data dataKey, Object value, long ttl, boolean shouldSchedule) {
         MapContainer mapContainer = getMapContainer(name);
-        Record record = mapContainer.getRecordFactory().newRecord(dataKey, value);
+        Record record = mapContainer.getRecordFactory().newRecord(recordStore, dataKey, value);
 
         if (shouldSchedule) {
             // if ttl is 0 then no eviction. if ttl is -1 then default configured eviction is applied

@@ -16,6 +16,7 @@
 
 package com.hazelcast.multimap.txn;
 
+import com.hazelcast.multimap.MultiMapDataRecord;
 import com.hazelcast.multimap.MultiMapRecord;
 import com.hazelcast.multimap.MultiMapService;
 import com.hazelcast.multimap.operations.MultiMapResponse;
@@ -83,7 +84,7 @@ public abstract class TransactionalMultiMapProxySupport extends AbstractDistribu
         } else {
             log = (MultiMapTransactionLog)tx.getTransactionLog(getTxLogKey(key));
         }
-        MultiMapRecord record = new MultiMapRecord(config.isBinary() ? value : getNodeEngine().toObject(value));
+        MultiMapRecord record = config.isBinary() ? new MultiMapDataRecord(value) : new MultiMapRecord( getNodeEngine().toObject(value));
         if (coll.add(record)){
             if (recordId == -1){
                 recordId = nextId(key);
@@ -116,7 +117,7 @@ public abstract class TransactionalMultiMapProxySupport extends AbstractDistribu
         } else {
             log = (MultiMapTransactionLog)tx.getTransactionLog(getTxLogKey(key));
         }
-        MultiMapRecord record = new MultiMapRecord(config.isBinary() ? value : getNodeEngine().toObject(value));
+        MultiMapRecord record = config.isBinary() ? new MultiMapDataRecord(value) : new MultiMapRecord( getNodeEngine().toObject(value));
         Iterator<MultiMapRecord> iterator = coll.iterator();
         long recordId = -1;
         while (iterator.hasNext()){

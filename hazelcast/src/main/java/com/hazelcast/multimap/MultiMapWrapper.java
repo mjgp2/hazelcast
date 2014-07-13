@@ -16,7 +16,13 @@
 
 package com.hazelcast.multimap;
 
-import java.util.*;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Set;
+
+import com.hazelcast.config.MultiMapConfig;
 
 /**
  * @author ali 3/1/13
@@ -29,8 +35,11 @@ public class MultiMapWrapper {
 
     private long version = -1;
 
-    public MultiMapWrapper(Collection<MultiMapRecord> collection) {
-        this.collection = collection;
+    private MultiMapContainer container;
+
+    public MultiMapWrapper(Collection<? extends MultiMapRecord> collection, MultiMapContainer container) {
+        this.collection = (Collection<MultiMapRecord>) collection;
+        this.container = container;
     }
 
     public Collection<MultiMapRecord> getCollection(boolean copyOf) {
@@ -41,12 +50,43 @@ public class MultiMapWrapper {
     }
 
     private Collection<MultiMapRecord> getCopyOfCollection(){
-        if (collection instanceof Set) {
-            return new HashSet<MultiMapRecord>(collection);
-        } else if (collection instanceof List) {
-            return new LinkedList<MultiMapRecord>(collection);
+        
+        if ( container.getConfig().isBinary() ) {
+            
+            final Collection<MultiMapDataRecord> collection;
+            if ( isSet() ) {
+                collection = new HashSet<MultiMapDataRecord>();
+            } else if ( isList() ) {
+                collection = new LinkedList<MultiMapDataRecord>();
+            } else {
+                throw new IllegalArgumentException("No Matching CollectionProxyType!");
+            }
+            
+            for ( MultiMapRecord r : this.collection ) {
+                Object loadedObject = ((MultiMapDataRecord)r).loadObject();
+                collection.add(new MultiMapDataRecord(r.getRecordId(), loadedObject));
+            }
+            
         }
-        throw new IllegalArgumentException("No Matching CollectionProxyType!");
+        
+        final Collection<MultiMapRecord> collection;
+        if ( isSet() ) {
+            collection = new HashSet<MultiMapRecord>(this.collection);
+        } else if ( isList() ) {
+            collection = new LinkedList<MultiMapRecord>(this.collection);
+        } else {
+            throw new IllegalArgumentException("No Matching CollectionProxyType!");
+        }
+        
+        return collection;
+    }
+
+    private boolean isList() {
+        return container.getConfig().getValueCollectionType().equals(MultiMapConfig.ValueCollectionType.LIST);
+    }
+
+    private boolean isSet() {
+        return container.getConfig().getValueCollectionType().equals(MultiMapConfig.ValueCollectionType.SET);
     }
 
     public void incrementHit(){
@@ -76,6 +116,10 @@ public class MultiMapWrapper {
 
     public long incrementAndGetVersion(){
         return ++version;
+    }
+
+    public void destroy() {
+        collection.clear();
     }
 
 }

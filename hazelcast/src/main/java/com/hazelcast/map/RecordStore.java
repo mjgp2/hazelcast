@@ -130,4 +130,6 @@ public interface RecordStore {
     void clear();
 
     boolean isEmpty();
+
+    void destroy();
 }

@@ -18,6 +18,7 @@ package com.hazelcast.map.record;
 
 import com.hazelcast.config.InMemoryFormat;
 import com.hazelcast.config.MapConfig;
+import com.hazelcast.map.RecordStore;
 import com.hazelcast.nio.serialization.Data;
 import com.hazelcast.nio.serialization.SerializationService;
 
@@ -40,12 +41,9 @@ public class ObjectRecordFactory implements RecordFactory<Object> {
     }
 
     @Override
-    public Record<Object> newRecord(Data key, Object value) {
-        Object v = value;
-        if (value instanceof Data) {
-            v = serializationService.toObject((Data) value);
-        }
-        return new ObjectRecord(key, v, statisticsEnabled);
+    public Record<Object> newRecord(RecordStore recordsStore, Data key, Object value) {
+        value = serializationService.toObject(value);
+        return new ObjectRecord(key, value, statisticsEnabled);
     }
 
     @Override

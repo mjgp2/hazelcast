@@ -16,18 +16,32 @@
 
 package com.hazelcast.multimap;
 
-import com.hazelcast.concurrent.lock.LockService;
-import com.hazelcast.spi.DefaultObjectNamespace;
-import com.hazelcast.concurrent.lock.LockStore;
-import com.hazelcast.config.MultiMapConfig;
-import com.hazelcast.nio.serialization.Data;
-import com.hazelcast.spi.NodeEngine;
-import com.hazelcast.util.Clock;
-
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
+
+import org.mapdb.HTreeMap;
+import org.mapdb.Serializer;
+
+import com.hazelcast.concurrent.lock.LockService;
+import com.hazelcast.concurrent.lock.LockStore;
+import com.hazelcast.config.MultiMapConfig;
+import com.hazelcast.instance.HazelcastInstanceImpl;
+import com.hazelcast.nio.serialization.Data;
+import com.hazelcast.nio.serialization.MapDBDataSerializer;
+import com.hazelcast.spi.DefaultObjectNamespace;
+import com.hazelcast.spi.NodeEngine;
+import com.hazelcast.util.Clock;
 
 /**
  * @author ali 1/2/13
@@ -55,17 +69,27 @@ public class MultiMapContainer {
     final AtomicLong lastUpdateTime = new AtomicLong();
     final long creationTime;
 
+    private String mapDbName;
+    private HTreeMap<Long, Data> dataMap;
+    
     public MultiMapContainer(String name, MultiMapService service, int partitionId) {
         this.name = name;
         this.service = service;
         this.nodeEngine = service.getNodeEngine();
         this.partitionId = partitionId;
         this.config = nodeEngine.getConfig().findMultiMapConfig(name);
+        
+        this.mapDbName = name+'-'+partitionId+'-'+UUID.randomUUID();
+        this.dataMap = ((HazelcastInstanceImpl) nodeEngine.getHazelcastInstance()).getMapDb().createHashMap(mapDbName).keySerializer(Serializer.LONG).valueSerializer(new MapDBDataSerializer(nodeEngine.getSerializationService())).make();
 
         this.lockNamespace = new DefaultObjectNamespace(MultiMapService.SERVICE_NAME, name);
         final LockService lockService = nodeEngine.getSharedService(LockService.SERVICE_NAME);
         this.lockStore = lockService == null ? null : lockService.createLockStore(partitionId, lockNamespace);
         creationTime = Clock.currentTimeMillis();
+    }
+    
+    public HTreeMap<Long, Data> getDataMap() {
+        return dataMap;
     }
 
     public boolean canAcquireLock(Data dataKey, String caller, long threadId) {
@@ -103,7 +127,7 @@ public class MultiMapContainer {
     public MultiMapWrapper getOrCreateMultiMapWrapper(Data dataKey) {
         MultiMapWrapper wrapper = multiMapWrappers.get(dataKey);
         if (wrapper == null) {
-            Collection<MultiMapRecord> coll;
+            Collection<? extends MultiMapRecord> coll;
             if (config.getValueCollectionType().equals(MultiMapConfig.ValueCollectionType.SET)) {
                 coll = new HashSet<MultiMapRecord>(10);
             } else if (config.getValueCollectionType().equals(MultiMapConfig.ValueCollectionType.LIST)) {
@@ -111,7 +135,12 @@ public class MultiMapContainer {
             } else {
                 throw new IllegalArgumentException("No Matching CollectionProxyType!");
             }
-            wrapper = new MultiMapWrapper(coll);
+
+            if ( config.isBinary() ) {
+                coll = new MapDbCollectionWrapper((Collection<MultiMapDataRecord>) coll, nodeEngine, this);
+            }
+            
+            wrapper = new MultiMapWrapper(coll, this);
             multiMapWrappers.put(dataKey, wrapper);
         }
         return wrapper;
@@ -122,19 +151,37 @@ public class MultiMapContainer {
     }
 
     public void delete(Data dataKey) {
-        multiMapWrappers.remove(dataKey);
+        MultiMapWrapper wrapper = multiMapWrappers.remove(dataKey);
+        if ( wrapper == null ) {
+            return;
+        }
+        wrapper.destroy();
     }
 
     public Collection<MultiMapRecord> remove(Data dataKey, boolean copyOf) {
+        
         MultiMapWrapper wrapper = multiMapWrappers.remove(dataKey);
-        return wrapper != null ? wrapper.getCollection(copyOf) : null;
+        
+        if ( ! config.isBinary() ) {
+            return wrapper != null ? wrapper.getCollection(copyOf) : null;
+        }
+        
+        if ( wrapper == null ) {
+            return null;
+        }
+        
+        Collection<MultiMapRecord> collection = wrapper.getCollection(false);
+        Collection<MultiMapRecord> result = new ArrayList<MultiMapRecord>( collection ) ;
+        for ( MultiMapRecord r : result ) {
+            ((MultiMapDataRecord) r).loadAndSetObject();
+        }
+        // delete from the backing map
+        collection.clear();
+        return result;
     }
 
-    public Set<Data> keySet() {
-        Set<Data> keySet = multiMapWrappers.keySet();
-        Set<Data> keys = new HashSet<Data>(keySet.size());
-        keys.addAll(keySet);
-        return keys;
+    public List<Data> keySet() {
+        return new ArrayList<Data>(multiMapWrappers.keySet());
     }
 
     public Collection<MultiMapRecord> values() {
@@ -154,7 +201,7 @@ public class MultiMapContainer {
         if (wrapper == null) {
             return false;
         }
-        MultiMapRecord record = new MultiMapRecord(binary ? value : nodeEngine.toObject(value));
+        MultiMapRecord record = binary ? new MultiMapDataRecord(value) : new MultiMapRecord( getNodeEngine().toObject(value));
         return wrapper.getCollection(false).contains(record);
     }
 
@@ -167,6 +214,7 @@ public class MultiMapContainer {
         return false;
     }
 
+    // WARNING: This is an incredibly inefficient method, and loads EVERYTHING into the heap
     public Map<Data, Collection<MultiMapRecord>> copyCollections() {
         Map<Data, Collection<MultiMapRecord>> map = new HashMap<Data, Collection<MultiMapRecord>>(multiMapWrappers.size());
         for (Map.Entry<Data, MultiMapWrapper> entry : multiMapWrappers.entrySet()) {
@@ -188,10 +236,12 @@ public class MultiMapContainer {
     public void clear() {
         final Collection<Data> locks = lockStore != null ? lockStore.getLockedKeys() : Collections.<Data>emptySet();
         Map<Data, MultiMapWrapper> temp = new HashMap<Data, MultiMapWrapper>(locks.size());
-        for (Data key : locks) {
-            MultiMapWrapper wrapper = multiMapWrappers.get(key);
-            if (wrapper != null){
-                temp.put(key, wrapper);
+        for (Entry<Data, MultiMapWrapper> e : multiMapWrappers.entrySet()) {
+            if ( locks.contains(e.getKey() ) ) {
+                temp.put(e.getKey(), e.getValue());
+            } else {
+                // this will actually remove the values from mapdb
+                e.getValue().getCollection(false).clear();
             }
         }
         multiMapWrappers.clear();
@@ -236,5 +286,14 @@ public class MultiMapContainer {
 
     public long getLockedCount() {
         return lockStore.getLockedKeys().size();
+    }
+
+    public void writeData(MultiMapDataRecord e) {
+        if ( ! ( e.getObject() instanceof Data ) ) {
+            throw new AssertionError("Expected a Data object");
+        }
+        Data data = (Data) e.getObject();
+        e.setObjectId(dataMap, idGen.incrementAndGet(), data.hashCode());
+        dataMap.put(e.getObjectId(), data);
     }
 }

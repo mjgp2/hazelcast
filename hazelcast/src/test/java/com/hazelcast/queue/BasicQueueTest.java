@@ -27,6 +27,7 @@ import com.hazelcast.test.HazelcastTestSupport;
 import com.hazelcast.test.TestHazelcastInstanceFactory;
 import com.hazelcast.test.annotation.ProblematicTest;
 import com.hazelcast.test.annotation.QuickTest;
+
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
@@ -126,7 +127,7 @@ public class BasicQueueTest extends HazelcastTestSupport {
 
     @Test
     @Category(ProblematicTest.class)
-    public void testQueueStats() {
+    public void testQueueStats() throws InterruptedException {
         TestHazelcastInstanceFactory factory = createHazelcastInstanceFactory(2);
        final String name = "t_queue";
 
@@ -138,6 +139,10 @@ public class BasicQueueTest extends HazelcastTestSupport {
         }
 
         HazelcastInstance ins2 = factory.newHazelcastInstance();
+        
+        // see https://github.com/hazelcast/hazelcast/issues/3007
+        Thread.sleep(2000);
+        
         IQueue q2 = ins2.getQueue(name);
         for (int i = 0; i < items / 2; i++) {
             q2.offer("item" + i);
@@ -149,6 +154,7 @@ public class BasicQueueTest extends HazelcastTestSupport {
         assertTrue(stats1.getOwnedItemCount() == items || stats2.getOwnedItemCount() == items);
         assertFalse(stats1.getOwnedItemCount() == items && stats2.getOwnedItemCount() == items);
 
+        
         if (stats1.getOwnedItemCount() == items) {
             assertEquals(items, stats2.getBackupItemCount());
             assertEquals(0, stats1.getBackupItemCount());

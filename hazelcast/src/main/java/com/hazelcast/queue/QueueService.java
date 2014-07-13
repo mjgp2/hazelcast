@@ -19,17 +19,28 @@ package com.hazelcast.queue;
 import com.hazelcast.core.ItemEvent;
 import com.hazelcast.core.ItemEventType;
 import com.hazelcast.core.ItemListener;
+import com.hazelcast.instance.MemberImpl;
 import com.hazelcast.logging.ILogger;
 import com.hazelcast.monitor.LocalQueueStats;
 import com.hazelcast.monitor.impl.LocalQueueStatsImpl;
 import com.hazelcast.nio.Address;
-import com.hazelcast.partition.MigrationEndpoint;
 import com.hazelcast.partition.InternalPartition;
+import com.hazelcast.partition.MigrationEndpoint;
 import com.hazelcast.partition.strategy.StringPartitioningStrategy;
 import com.hazelcast.queue.proxy.QueueProxyImpl;
 import com.hazelcast.queue.tx.QueueTransactionRollbackOperation;
 import com.hazelcast.queue.tx.TransactionalQueueProxy;
-import com.hazelcast.spi.*;
+import com.hazelcast.spi.EventPublishingService;
+import com.hazelcast.spi.EventRegistration;
+import com.hazelcast.spi.EventService;
+import com.hazelcast.spi.ManagedService;
+import com.hazelcast.spi.MigrationAwareService;
+import com.hazelcast.spi.NodeEngine;
+import com.hazelcast.spi.Operation;
+import com.hazelcast.spi.PartitionMigrationEvent;
+import com.hazelcast.spi.PartitionReplicationEvent;
+import com.hazelcast.spi.RemoteService;
+import com.hazelcast.spi.TransactionalService;
 import com.hazelcast.transaction.impl.TransactionSupport;
 import com.hazelcast.util.ConcurrencyUtil;
 import com.hazelcast.util.ConstructorFunction;
@@ -37,10 +48,21 @@ import com.hazelcast.util.scheduler.EntryTaskScheduler;
 import com.hazelcast.util.scheduler.EntryTaskSchedulerFactory;
 import com.hazelcast.util.scheduler.ScheduleType;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
 
 /**
  * User: ali
@@ -51,12 +73,22 @@ public class QueueService implements ManagedService, MigrationAwareService, Tran
         RemoteService, EventPublishingService<QueueEvent, ItemListener> {
 
     public static final String SERVICE_NAME = "hz:impl:queueService";
-    protected static final StringPartitioningStrategy PARTITIONING_STRATEGY = new StringPartitioningStrategy();
-
+    private static final ThreadPoolExecutor EXECUTOR = new ThreadPoolExecutor(0, Integer.MAX_VALUE,
+            60L, TimeUnit.SECONDS,
+            new SynchronousQueue<Runnable>(), new ThreadFactory() {
+                
+                @Override
+                public Thread newThread(Runnable r) {
+                    Thread t = new Thread(r);
+                    t.setName("QueueService-"+t.getId());
+                    t.setDaemon(true);
+                    return t;
+                }
+            });
+    
     private final NodeEngine nodeEngine;
     private final ConcurrentMap<String, QueueContainer> containerMap = new ConcurrentHashMap<String, QueueContainer>();
     private final ConcurrentMap<String, LocalQueueStatsImpl> statsMap = new ConcurrentHashMap<String, LocalQueueStatsImpl>(1000);
-    private final ILogger logger;
     private final ConstructorFunction<String, LocalQueueStatsImpl> localQueueStatsConstructorFunction = new ConstructorFunction<String, LocalQueueStatsImpl>() {
         public LocalQueueStatsImpl createNew(String key) {
             return new LocalQueueStatsImpl();
@@ -64,18 +96,23 @@ public class QueueService implements ManagedService, MigrationAwareService, Tran
     };
     final EntryTaskScheduler queueEvictionScheduler;
 
+    private final ILogger logger;
+
     public QueueService(NodeEngine nodeEngine) {
         this.nodeEngine = nodeEngine;
-        logger = nodeEngine.getLogger(QueueService.class);
-        queueEvictionScheduler = EntryTaskSchedulerFactory.newScheduler(nodeEngine.getExecutionService().getDefaultScheduledExecutor(),
-                new QueueEvictionProcessor(nodeEngine, this), ScheduleType.POSTPONE);
+        ScheduledExecutorService defaultScheduledExecutor
+                = nodeEngine.getExecutionService().getDefaultScheduledExecutor();
+        QueueEvictionProcessor entryProcessor = new QueueEvictionProcessor(nodeEngine, this);
+        this.queueEvictionScheduler = EntryTaskSchedulerFactory.newScheduler(
+                defaultScheduledExecutor, entryProcessor, ScheduleType.POSTPONE);
+        this.logger = nodeEngine.getLogger(QueueService.class);
     }
 
-    public void scheduleEviction(String name, long delay){
+    public void scheduleEviction(String name, long delay) {
         queueEvictionScheduler.schedule(delay, name, null);
     }
 
-    public void cancelEviction(String name){
+    public void cancelEviction(String name) {
         queueEvictionScheduler.cancel(name);
     }
 
@@ -106,7 +143,16 @@ public class QueueService implements ManagedService, MigrationAwareService, Tran
     }
 
     public void addContainer(String name, QueueContainer container) {
-        containerMap.put(name, container);
+        final QueueContainer replaced = containerMap.put(name, container);
+        if ( replaced != null ) {
+            EXECUTOR.submit(new Runnable() {
+                
+                @Override
+                public void run() {
+                    replaced.destroy();
+                }
+            });
+        }
     }
 
     // need for testing..
@@ -176,8 +222,12 @@ public class QueueService implements ManagedService, MigrationAwareService, Tran
     }
 
     public void destroyDistributedObject(String name) {
-        containerMap.remove(name);
-        nodeEngine.getEventService().deregisterAllListeners(SERVICE_NAME, name);
+        try {
+            QueueContainer c = containerMap.remove(name);
+            c.destroy();
+        } finally {
+            nodeEngine.getEventService().deregisterAllListeners(SERVICE_NAME, name);
+        }
     }
 
     public String addItemListener(String name, ItemListener listener, boolean includeValue) {
@@ -208,9 +258,9 @@ public class QueueService implements ManagedService, MigrationAwareService, Tran
         InternalPartition partition = nodeEngine.getPartitionService().getPartition(partitionId);
 
         Address owner = partition.getOwner();
-        if(owner == null){
+        if (owner == null) {
             //no-op because the owner is not yet set.
-        }else if (thisAddress.equals(owner)) {
+        } else if (thisAddress.equals(owner)) {
             stats.setOwnedItemCount(container.size());
         } else {
             stats.setBackupItemCount(container.backupSize());
