@@ -43,7 +43,6 @@ import com.hazelcast.nio.ObjectDataInput;
 import com.hazelcast.nio.ObjectDataOutput;
 import com.hazelcast.nio.serialization.Data;
 import com.hazelcast.nio.serialization.IdentifiedDataSerializable;
-import com.hazelcast.nio.serialization.MapDBDataSerializer;
 import com.hazelcast.spi.NodeEngine;
 import com.hazelcast.transaction.TransactionException;
 import com.hazelcast.util.Clock;
@@ -58,7 +57,8 @@ public class QueueContainer implements IdentifiedDataSerializable {
     private LinkedList<QueueItem> itemQueue = null;
     private HashMap<Long, QueueItem> backupMap = null;
     private final Map<Long, TxQueueItem> txMap = new HashMap<Long, TxQueueItem>();
-    private final Map<Long, Data> dataMap;
+    private final HashMap<Long, Data> dataMap = new HashMap<Long, Data>();
+    private  Map<Long, byte[]> dbMap; 
 
     private QueueConfig config;
     private QueueStoreWrapper store;
@@ -87,7 +87,6 @@ public class QueueContainer implements IdentifiedDataSerializable {
 
     public QueueContainer(String name) {
         this.name = name;
-        this.dataMap = null;
         this.pollWaitNotifyKey = null;
         this.offerWaitNotifyKey = null;
         this.mapDbName = null;
@@ -98,12 +97,25 @@ public class QueueContainer implements IdentifiedDataSerializable {
         mapDbName = "queueMap-"+name+"-"+UUID.randomUUID();
         pollWaitNotifyKey = new QueueWaitNotifyKey(name, "poll");
         offerWaitNotifyKey = new QueueWaitNotifyKey(name, "offer");
-        dataMap = ((HazelcastInstanceImpl)nodeEngine.getHazelcastInstance()).getMapDb()
-                .createHashMap(mapDbName)
-                .keySerializer(Serializer.LONG)
-                .valueSerializer(new MapDBDataSerializer(nodeEngine.getSerializationService()))
-                .counterEnable()
-                .make();
+        
+        
+        if ( config.getQueueStoreConfig() == null || ! config.getQueueStoreConfig().isEnabled()) {
+            dbMap = ((HazelcastInstanceImpl)nodeEngine.getHazelcastInstance()).getMapDb()
+                    .createHashMap(mapDbName)
+                    .keySerializer(Serializer.LONG)
+                    .valueSerializer(Serializer.BYTE_ARRAY)
+                    .counterEnable()
+                    .make();
+            QueueStoreConfig queueStoreConfig = new QueueStoreConfig();
+            queueStoreConfig.setEnabled(true);
+            queueStoreConfig.setStoreImplementation(new MapDbQueueStore(dbMap));
+            queueStoreConfig.setProperty("binary", "true");
+            queueStoreConfig.setProperty("memory-limit", "-1");
+            QueueConfig conf = new QueueConfig(config);
+            conf.setQueueStoreConfig(queueStoreConfig);
+            config = conf;
+        }
+        
         
         setConfig(config, nodeEngine, service);
     }
@@ -755,7 +767,10 @@ public class QueueContainer implements IdentifiedDataSerializable {
             }
             txMap.clear();
         } finally { 
-            ((HazelcastInstanceImpl)nodeEngine.getHazelcastInstance()).getMapDb().delete(mapDbName);
+            if ( dbMap != null ) {
+                ((HazelcastInstanceImpl)nodeEngine.getHazelcastInstance()).getMapDb().delete(mapDbName);
+                dbMap = null;
+            }
         }
     }
 
