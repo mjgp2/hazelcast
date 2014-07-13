@@ -16,6 +16,7 @@
 
 package com.hazelcast.map.record;
 
+import com.hazelcast.map.RecordStore;
 import com.hazelcast.nio.serialization.Data;
 
 public final class CachedDataRecord extends DataRecord {
@@ -25,8 +26,8 @@ public final class CachedDataRecord extends DataRecord {
     public CachedDataRecord() {
     }
 
-    public CachedDataRecord(Data keyData, Data value, boolean statisticsEnabled) {
-        super(keyData, value, statisticsEnabled);
+    public CachedDataRecord(RecordStore records, Data keyData, Data value, boolean statisticsEnabled) {
+        super(records, keyData, value, statisticsEnabled);
     }
 
     public void setValue(Data o) {

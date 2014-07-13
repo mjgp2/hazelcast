@@ -16,14 +16,25 @@
 
 package com.hazelcast.map.record;
 
+import com.hazelcast.map.DefaultRecordStore;
+import com.hazelcast.map.RecordStore;
 import com.hazelcast.nio.serialization.Data;
 
 public /*final*/ class DataRecord extends AbstractRecord<Data> implements Record<Data> {
 
+    // TODO: this is a total guess
+    private static final int MAP_DB_ENTRY_HEAP_SIZE = 16;
+    
     protected Data value;
+    private DefaultRecordStore recordStore;
 
-    public DataRecord(Data keyData, Data value, boolean statisticsEnabled) {
-        super(keyData, statisticsEnabled);
+    public DataRecord(RecordStore recordStore, Data keyData, Data value, boolean statisticsEnabled) {
+        super(keyData, false);
+        DefaultRecordStore defaultRecordStore = (DefaultRecordStore) recordStore;
+        if ( statisticsEnabled ) {
+            this.statistics = defaultRecordStore.getRecordStatistics(keyData);
+        }
+        this.recordStore = defaultRecordStore;
         this.value = value;
     }
 
@@ -39,7 +50,7 @@ public /*final*/ class DataRecord extends AbstractRecord<Data> implements Record
         long size = super.getCost();
 
         // add value size.
-        size += 4 + (value == null ? 0 : value.getHeapCost());
+        size += 4 + MAP_DB_ENTRY_HEAP_SIZE;
         return size;
     }
 
@@ -49,6 +60,8 @@ public /*final*/ class DataRecord extends AbstractRecord<Data> implements Record
 
     public void setValue(Data o) {
         value = o;
+        
+        recordStore.updateRecord(this);
     }
 
     public void invalidate() {

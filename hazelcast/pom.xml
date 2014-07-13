@@ -250,6 +250,12 @@
             <version>1.3.2</version>
             <scope>compile</scope>
         </dependency>
+        <dependency>
+        	<groupId>org.mapdb</groupId>
+        	<artifactId>mapdb</artifactId>
+        	<version>1.0.4</version>
+        	<scope>provided</scope>
+        </dependency>
     </dependencies>
 
     <profiles>

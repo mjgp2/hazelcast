@@ -16,21 +16,36 @@
 
 package com.hazelcast.queue;
 
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.ListIterator;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+
 import com.hazelcast.config.QueueConfig;
 import com.hazelcast.config.QueueStoreConfig;
 import com.hazelcast.core.HazelcastException;
+import com.hazelcast.instance.HazelcastInstanceImpl;
 import com.hazelcast.logging.ILogger;
 import com.hazelcast.monitor.impl.LocalQueueStatsImpl;
 import com.hazelcast.nio.ObjectDataInput;
 import com.hazelcast.nio.ObjectDataOutput;
 import com.hazelcast.nio.serialization.Data;
 import com.hazelcast.nio.serialization.IdentifiedDataSerializable;
+import com.hazelcast.nio.serialization.MapDBDataSerializer;
+import com.hazelcast.nio.serialization.MapDBLongSerializer;
 import com.hazelcast.spi.NodeEngine;
 import com.hazelcast.transaction.TransactionException;
 import com.hazelcast.util.Clock;
-
-import java.io.IOException;
-import java.util.*;
 
 /**
  * User: ali
@@ -42,7 +57,7 @@ public class QueueContainer implements IdentifiedDataSerializable {
     private LinkedList<QueueItem> itemQueue = null;
     private HashMap<Long, QueueItem> backupMap = null;
     private final Map<Long, TxQueueItem> txMap = new HashMap<Long, TxQueueItem>();
-    private final HashMap<Long, Data> dataMap = new HashMap<Long, Data>();
+    private final Map<Long, Data> dataMap;
 
     private QueueConfig config;
     private QueueStoreWrapper store;
@@ -50,6 +65,8 @@ public class QueueContainer implements IdentifiedDataSerializable {
     private QueueService service;
     private ILogger logger;
 
+    private final String mapDbName;
+    
     private long idGenerator = 0;
 
     private final QueueWaitNotifyKey pollWaitNotifyKey;
@@ -67,16 +84,26 @@ public class QueueContainer implements IdentifiedDataSerializable {
 
     private boolean isEvictionScheduled = false;
 
-
     public QueueContainer(String name) {
         this.name = name;
-        pollWaitNotifyKey = new QueueWaitNotifyKey(name, "poll");
-        offerWaitNotifyKey = new QueueWaitNotifyKey(name, "offer");
+        this.dataMap = null;
+        this.pollWaitNotifyKey = null;
+        this.offerWaitNotifyKey = null;
+        this.mapDbName = null;
     }
 
-
     public QueueContainer(String name, QueueConfig config, NodeEngine nodeEngine, QueueService service) throws Exception {
-        this(name);
+        this.name = name;
+        mapDbName = "queueMap-"+name+"-"+UUID.randomUUID();
+        pollWaitNotifyKey = new QueueWaitNotifyKey(name, "poll");
+        offerWaitNotifyKey = new QueueWaitNotifyKey(name, "offer");
+        dataMap = ((HazelcastInstanceImpl)nodeEngine.getHazelcastInstance()).getMapDb()
+                .createHashMap(mapDbName)
+                .keySerializer(new MapDBLongSerializer())
+                .valueSerializer(new MapDBDataSerializer(nodeEngine.getSerializationService()))
+                .counterEnable()
+                .make();
+        
         setConfig(config, nodeEngine, service);
     }
 
@@ -717,14 +744,18 @@ public class QueueContainer implements IdentifiedDataSerializable {
     }
 
     public void destroy(){
-        if (itemQueue != null){
-            itemQueue.clear();
+        
+        try {
+            if (itemQueue != null){
+                itemQueue.clear();
+            }
+            if (backupMap != null){
+                backupMap.clear();
+            }
+            txMap.clear();
+        } finally { 
+            ((HazelcastInstanceImpl)nodeEngine.getHazelcastInstance()).getMapDb().delete(mapDbName);
         }
-        if (backupMap != null){
-            backupMap.clear();
-        }
-        txMap.clear();
-        dataMap.clear();
     }
 
     public int getFactoryId() {

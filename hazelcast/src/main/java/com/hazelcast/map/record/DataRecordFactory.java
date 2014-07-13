@@ -19,6 +19,7 @@ package com.hazelcast.map.record;
 import com.hazelcast.config.InMemoryFormat;
 import com.hazelcast.config.MapConfig;
 import com.hazelcast.core.PartitioningStrategy;
+import com.hazelcast.map.RecordStore;
 import com.hazelcast.nio.serialization.Data;
 import com.hazelcast.nio.serialization.SerializationService;
 
@@ -32,7 +33,7 @@ public class DataRecordFactory implements RecordFactory<Data> {
     private final boolean optimizeQuery;
     private final boolean statisticsEnabled;
 
-    public DataRecordFactory(MapConfig config, SerializationService serializationService, PartitioningStrategy partitionStrategy) {
+    public DataRecordFactory( MapConfig config, SerializationService serializationService, PartitioningStrategy partitionStrategy) {
         this.serializationService = serializationService;
         this.partitionStrategy = partitionStrategy;
         this.statisticsEnabled = config.isStatisticsEnabled();
@@ -45,12 +46,12 @@ public class DataRecordFactory implements RecordFactory<Data> {
     }
 
     @Override
-    public Record<Data> newRecord(Data key, Object value) {
+    public Record<Data> newRecord(RecordStore recordsStore, Data key, Object value) {
         Data v = serializationService.toData(value, partitionStrategy);
         if (optimizeQuery) {
-            return new CachedDataRecord(key, v, statisticsEnabled);
+            return new CachedDataRecord(recordsStore, key, v, statisticsEnabled);
         }
-        return new DataRecord(key, v, statisticsEnabled);
+        return new DataRecord(recordsStore, key, v, statisticsEnabled);
     }
 
     @Override

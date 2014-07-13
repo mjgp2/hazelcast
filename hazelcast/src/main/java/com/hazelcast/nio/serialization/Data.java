@@ -21,7 +21,7 @@ import com.hazelcast.nio.ObjectDataOutput;
 
 import java.io.IOException;
 
-public final class Data implements IdentifiedDataSerializable {
+public final class Data implements IdentifiedDataSerializable, Comparable<Data> {
 
     public static final int FACTORY_ID = 0;
     public static final int ID = 0;
@@ -252,4 +252,19 @@ public final class Data implements IdentifiedDataSerializable {
         sb.append('}');
         return sb.toString();
     }
+
+    @Override
+    public int compareTo(Data o) {
+        
+        if ( o.type > type ) {
+            return -1;
+        }
+        if ( type > o.type ) {
+            return -1;
+        }
+        
+        return UnsafeComparator.INSTANCE.compare(buffer, o.buffer);
+    }
+    
+
 }

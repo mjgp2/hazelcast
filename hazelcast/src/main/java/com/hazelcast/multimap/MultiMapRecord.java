@@ -25,7 +25,7 @@ import java.io.IOException;
 /**
  * @author ali 1/23/13
  */
-public class MultiMapRecord implements DataSerializable {
+public class MultiMapRecord implements DataSerializable, Comparable<MultiMapRecord> {
 
     private long recordId = -1;
 
@@ -82,5 +82,11 @@ public class MultiMapRecord implements DataSerializable {
     public void readData(ObjectDataInput in) throws IOException {
         recordId = in.readLong();
         object = in.readObject();
+    }
+
+    @Override
+    public int compareTo(MultiMapRecord o) {
+        // this is legal that it is a constant
+        return 0;
     }
 }

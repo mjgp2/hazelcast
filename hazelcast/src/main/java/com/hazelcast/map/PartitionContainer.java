@@ -65,7 +65,7 @@ public class PartitionContainer {
     void destroyMap(String name) {
         RecordStore recordStore = maps.remove(name);
         if (recordStore != null) {
-            recordStore.clearPartition();
+            recordStore.destroy();
         } else {
             clearLockStore(name);
         }

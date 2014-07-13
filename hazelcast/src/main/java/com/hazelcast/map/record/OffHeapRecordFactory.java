@@ -19,6 +19,7 @@ package com.hazelcast.map.record;
 import com.hazelcast.config.InMemoryFormat;
 import com.hazelcast.config.MapConfig;
 import com.hazelcast.core.PartitioningStrategy;
+import com.hazelcast.map.RecordStore;
 import com.hazelcast.nio.serialization.Data;
 import com.hazelcast.nio.serialization.SerializationService;
 import com.hazelcast.storage.DataRef;
@@ -47,7 +48,7 @@ public class OffHeapRecordFactory implements RecordFactory<Data> {
     }
 
     @Override
-    public Record<Data> newRecord(Data key, Object value) {
+    public Record<Data> newRecord(RecordStore recordsStore, Data key, Object value) {
         Data v = serializationService.toData(value, partitionStrategy);
         return new OffHeapRecord(storage, key, v, statisticsEnabled);
     }

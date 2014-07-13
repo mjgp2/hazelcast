@@ -239,7 +239,10 @@ public class MultiMapService implements ManagedService, RemoteService,
             String name = entry.getKey();
             MultiMapContainer container = getOrCreateCollectionContainer(partitionId, name);
             Map<Data, MultiMapWrapper> collections = entry.getValue();
-            container.multiMapWrappers.putAll(collections);
+            for ( Map.Entry<Data, MultiMapWrapper> e : collections.entrySet() ) {
+                MultiMapWrapper wrapper= container.getOrCreateMultiMapWrapper(e.getKey());
+                wrapper.getCollection(false).addAll(e.getValue().getCollection(false));
+            }
         }
     }
 

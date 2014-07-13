@@ -16,8 +16,8 @@
 
 package com.hazelcast.map.record;
 
+import com.hazelcast.map.RecordStore;
 import com.hazelcast.nio.serialization.Data;
-
 import com.hazelcast.config.InMemoryFormat;
 
 /**
@@ -27,7 +27,7 @@ import com.hazelcast.config.InMemoryFormat;
  */
 public interface RecordFactory<T> {
 
-    Record<T> newRecord(Data key, Object value);
+    Record<T> newRecord(RecordStore recordsStore, Data key, Object value);
 
     void setValue(Record<T> record, Object value);
 

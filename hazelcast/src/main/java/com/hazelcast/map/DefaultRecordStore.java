@@ -16,17 +16,42 @@
 
 package com.hazelcast.map;
 
+import java.util.AbstractMap;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.Map;
+import java.util.Queue;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import org.mapdb.HTreeMap;
+
 import com.hazelcast.concurrent.lock.LockService;
 import com.hazelcast.concurrent.lock.LockStore;
 import com.hazelcast.config.InMemoryFormat;
 import com.hazelcast.config.MapConfig;
 import com.hazelcast.core.EntryView;
+import com.hazelcast.instance.HazelcastInstanceImpl;
 import com.hazelcast.logging.ILogger;
 import com.hazelcast.map.merge.MapMergePolicy;
 import com.hazelcast.map.operation.PutAllOperation;
+import com.hazelcast.map.record.DataRecord;
+import com.hazelcast.map.record.MapDBDataRecordSerializer;
 import com.hazelcast.map.record.Record;
 import com.hazelcast.map.record.RecordFactory;
+import com.hazelcast.map.record.RecordStatistics;
 import com.hazelcast.nio.serialization.Data;
+import com.hazelcast.nio.serialization.MapDBDataSerializer;
 import com.hazelcast.nio.serialization.SerializationService;
 import com.hazelcast.query.impl.IndexService;
 import com.hazelcast.query.impl.QueryEntry;
@@ -39,21 +64,17 @@ import com.hazelcast.spi.exception.RetryableHazelcastException;
 import com.hazelcast.util.ExceptionUtil;
 import com.hazelcast.util.scheduler.EntryTaskScheduler;
 
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-
 /**
  * @author enesakar 1/17/13
  */
 public class DefaultRecordStore implements RecordStore {
     private static final long DEFAULT_TTL = -1;
     private final String name;
+    private final String mapDbName;
     private final int partitionId;
-    private final ConcurrentMap<Data, Record> records = new ConcurrentHashMap<Data, Record>(1000);
+    private final ConcurrentMap<Data, Record> records;
+    private final ConcurrentMap<Data, RecordStatistics> stats = new ConcurrentHashMap<Data, RecordStatistics>();
+    
     private final Set<Data> toBeRemovedKeys = new HashSet<Data>();
     private final MapContainer mapContainer;
     private final MapService mapService;
@@ -70,10 +91,12 @@ public class DefaultRecordStore implements RecordStore {
     public DefaultRecordStore(String name, MapService mapService, int partitionId) {
         this.name = name;
         this.partitionId = partitionId;
+        this.mapDbName = "records-"+name+"-"+partitionId+'-'+UUID.randomUUID();
         this.mapService = mapService;
         this.mapContainer = mapService.getMapContainer(name);
         this.logger = mapService.getNodeEngine().getLogger(this.getName());
         recordFactory = mapContainer.getRecordFactory();
+        this.records = makeMap();
         NodeEngine nodeEngine = mapService.getNodeEngine();
         final LockService lockService = nodeEngine.getSharedService(LockService.SERVICE_NAME);
         this.lockStore = lockService == null ? null :
@@ -123,6 +146,19 @@ public class DefaultRecordStore implements RecordStore {
         } else {
             loaded.set(true);
         }
+    }
+
+    private ConcurrentMap<Data, Record> makeMap() {
+        if ( recordFactory.getStorageFormat() == InMemoryFormat.BINARY ) {
+            return ((HazelcastInstanceImpl) mapService.getNodeEngine().getHazelcastInstance()).getMapDb()
+                    .createHashMap(mapDbName)
+                    .keySerializer(new MapDBDataSerializer(mapService.getNodeEngine().getSerializationService()))
+                    .valueSerializer(new MapDBDataRecordSerializer(mapService.getNodeEngine().getSerializationService(), this))
+                    .counterEnable()
+                    .make();
+        }
+
+        return new ConcurrentHashMap<Data, Record>(1000);
     }
 
     public boolean isLoaded() {
@@ -203,7 +239,7 @@ public class DefaultRecordStore implements RecordStore {
     public Record putBackup(Data key, Object value, long ttl, boolean shouldSchedule) {
         Record record = records.get(key);
         if (record == null) {
-            record = mapService.createRecord(name, key, value, ttl, shouldSchedule);
+            record = mapService.createRecord(this, name, key, value, ttl, shouldSchedule);
             records.put(key, record);
             updateSizeEstimator(calculateRecordSize(record));
         } else {
@@ -383,7 +419,7 @@ public class DefaultRecordStore implements RecordStore {
         if (mapContainer.getStore() != null) {
             final Object value = mapContainer.getStore().load(mapService.toObject(dataKey));
             if (value != null) {
-                record = mapService.createRecord(name, dataKey, value, DEFAULT_TTL);
+                record = mapService.createRecord(this, name, dataKey, value, DEFAULT_TTL);
                 records.put(dataKey, record);
                 if (enableIndex) {
                     saveIndex(record);
@@ -557,7 +593,7 @@ public class DefaultRecordStore implements RecordStore {
             if (mapContainer.getStore() != null) {
                 value = mapContainer.getStore().load(mapService.toObject(dataKey));
                 if (value != null) {
-                    record = mapService.createRecord(name, dataKey, value, DEFAULT_TTL);
+                    record = mapService.createRecord(this, name, dataKey, value, DEFAULT_TTL);
                     records.put(dataKey, record);
                     saveIndex(record);
                     updateSizeEstimator(calculateRecordSize(record));
@@ -604,7 +640,7 @@ public class DefaultRecordStore implements RecordStore {
             Object value = entry.getValue();
             Data dataKey = keyMapForLoader.get(objectKey);
             if (value != null) {
-                Record record = mapService.createRecord(name, dataKey, value, DEFAULT_TTL);
+                Record record = mapService.createRecord(this, name, dataKey, value, DEFAULT_TTL);
                 records.put(dataKey, record);
                 saveIndex(record);
                 updateSizeEstimator(calculateRecordSize(record));
@@ -624,7 +660,7 @@ public class DefaultRecordStore implements RecordStore {
             if (mapContainer.getStore() != null) {
                 Object value = mapContainer.getStore().load(mapService.toObject(dataKey));
                 if (value != null) {
-                    record = mapService.createRecord(name, dataKey, value, DEFAULT_TTL);
+                    record = mapService.createRecord(this, name, dataKey, value, DEFAULT_TTL);
                     records.put(dataKey, record);
                     updateSizeEstimator(calculateRecordSize(record));
                 }
@@ -646,7 +682,7 @@ public class DefaultRecordStore implements RecordStore {
         if (record == null) {
             value = mapService.interceptPut(name, null, value);
             value = writeMapStore(dataKey, value, null);
-            record = mapService.createRecord(name, dataKey, value, DEFAULT_TTL);
+            record = mapService.createRecord(this, name, dataKey, value, DEFAULT_TTL);
             records.put(dataKey, record);
             // increase size.
             updateSizeEstimator(calculateRecordSize(record));
@@ -675,7 +711,7 @@ public class DefaultRecordStore implements RecordStore {
             }
             value = mapService.interceptPut(name, null, value);
             value = writeMapStore(dataKey, value, null);
-            record = mapService.createRecord(name, dataKey, value, ttl);
+            record = mapService.createRecord(this, name, dataKey, value, ttl);
             records.put(dataKey, record);
             updateSizeEstimator(calculateRecordSize(record));
             saveIndex(record);
@@ -701,7 +737,7 @@ public class DefaultRecordStore implements RecordStore {
         if (record == null) {
             value = mapService.interceptPut(name, null, value);
             value = writeMapStore(dataKey, value, null);
-            record = mapService.createRecord(name, dataKey, value, ttl);
+            record = mapService.createRecord(this, name, dataKey, value, ttl);
             records.put(dataKey, record);
             updateSizeEstimator(calculateRecordSize(record));
             newRecord = true;
@@ -745,7 +781,7 @@ public class DefaultRecordStore implements RecordStore {
         if (record == null) {
             newValue = mergingEntry.getValue();
             newValue = writeMapStore(dataKey, newValue, null);
-            record = mapService.createRecord(name, dataKey, newValue, DEFAULT_TTL);
+            record = mapService.createRecord(this, name, dataKey, newValue, DEFAULT_TTL);
             records.put(dataKey, record);
             updateSizeEstimator(calculateRecordSize(record));
         } else {
@@ -818,7 +854,7 @@ public class DefaultRecordStore implements RecordStore {
         Record record = records.get(dataKey);
         if (record == null) {
             value = mapService.interceptPut(name, null, value);
-            record = mapService.createRecord(name, dataKey, value, ttl);
+            record = mapService.createRecord(this, name, dataKey, value, ttl);
             records.put(dataKey, record);
             updateSizeEstimator(calculateRecordSize(record));
         } else {
@@ -835,7 +871,7 @@ public class DefaultRecordStore implements RecordStore {
         Record record = records.get(dataKey);
         if (record == null) {
             value = mapService.interceptPut(name, null, value);
-            record = mapService.createRecord(name, dataKey, value, ttl);
+            record = mapService.createRecord(this, name, dataKey, value, ttl);
             records.put(dataKey, record);
             updateSizeEstimator(calculateRecordSize(record));
         } else {
@@ -854,7 +890,7 @@ public class DefaultRecordStore implements RecordStore {
         if (record == null) {
             value = mapService.interceptPut(name, null, value);
             value = writeMapStore(dataKey, value, null);
-            record = mapService.createRecord(name, dataKey, value, ttl);
+            record = mapService.createRecord(this, name, dataKey, value, ttl);
             records.put(dataKey, record);
             updateSizeEstimator(calculateRecordSize(record));
         } else {
@@ -878,7 +914,7 @@ public class DefaultRecordStore implements RecordStore {
             if (mapContainer.getStore() != null) {
                 oldValue = mapContainer.getStore().load(mapService.toObject(dataKey));
                 if (oldValue != null) {
-                    record = mapService.createRecord(name, dataKey, oldValue, DEFAULT_TTL);
+                    record = mapService.createRecord(this, name, dataKey, oldValue, DEFAULT_TTL);
                     records.put(dataKey, record);
                     updateSizeEstimator(calculateRecordSize(record));
                 }
@@ -890,7 +926,7 @@ public class DefaultRecordStore implements RecordStore {
         if (oldValue == null) {
             value = mapService.interceptPut(name, null, value);
             value = writeMapStore(dataKey, value, record);
-            record = mapService.createRecord(name, dataKey, value, ttl);
+            record = mapService.createRecord(this, name, dataKey, value, ttl);
             records.put(dataKey, record);
             updateSizeEstimator(calculateRecordSize(record));
             updateTtl(record, ttl);
@@ -1048,4 +1084,33 @@ public class DefaultRecordStore implements RecordStore {
             }
         }
     }
+
+    @Override
+    public void destroy() {
+        clearPartition();
+        if ( recordFactory.getStorageFormat() == InMemoryFormat.BINARY ) {
+            ((HazelcastInstanceImpl) mapService.getNodeEngine().getHazelcastInstance()).getMapDb().delete(mapDbName);
+        }
+    }
+
+    public RecordStatistics getRecordStatistics(Data keyData) {
+        
+        RecordStatistics recordStatistics = new RecordStatistics();
+        if ( stats.putIfAbsent(keyData, recordStatistics) == null ) {
+            return recordStatistics;
+        }
+        
+        return stats.get(keyData);
+    }
+
+    public void updateRecord(DataRecord dataRecord) {
+
+        // TODO: Would be good if this didn't bother to return the replaced value for MapDB
+        // re-insert to update off-heap
+        if ( records instanceof HTreeMap ) {
+            records.put(dataRecord.getKey(), dataRecord);
+        }
+    }
+    
+    
 }
