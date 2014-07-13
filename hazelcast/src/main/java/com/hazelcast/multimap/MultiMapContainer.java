@@ -64,7 +64,7 @@ public class MultiMapContainer {
     final AtomicLong lastUpdateTime = new AtomicLong();
     final long creationTime;
 
-    private NavigableSet<Tuple3<Data, Data, MultiMapRecord>> navigableSet;
+    private NavigableSet<Tuple3<Data, Data, Long>> navigableSet;
 
     private String mapDbName;
 
@@ -83,8 +83,8 @@ public class MultiMapContainer {
         creationTime = Clock.currentTimeMillis();
         
         if ( config.isBinary() ) {
-            BTreeKeySerializer<Tuple3<Data, Data, MultiMapRecord>> serializer = 
-                    new Tuple3KeySerializer<Data, Data, MultiMapRecord>(null, null, new MapDBDataSerializer(service.getSerializationService()), new MapDBDataSerializer(service.getSerializationService()), new MapDBMultiMapRecordSerializer(service.getSerializationService()));
+            BTreeKeySerializer<Tuple3<Data, Data, Long>> serializer = 
+                    new Tuple3KeySerializer<Data, Data, Long>(null, null, new MapDBDataSerializer(service.getSerializationService()), new MapDBDataSerializer(service.getSerializationService()), new MapDBLongSerializer());
             this.navigableSet = ((HazelcastInstanceImpl) nodeEngine.getHazelcastInstance()).getMapDb().createTreeSet(mapDbName).serializer(serializer).make();
         }
     }
@@ -147,7 +147,11 @@ public class MultiMapContainer {
     }
 
     public void delete(Data dataKey) {
-        multiMapWrappers.remove(dataKey);
+        MultiMapWrapper wrapper = multiMapWrappers.remove(dataKey);
+        if ( wrapper == null ) {
+            return;
+        }
+        wrapper.destroy();
     }
 
     public Collection<MultiMapRecord> remove(Data dataKey, boolean copyOf) {
@@ -158,17 +162,19 @@ public class MultiMapContainer {
             return wrapper != null ? wrapper.getCollection(copyOf) : null;
         }
         
-        Collection<MultiMapRecord> result = wrapper != null ? wrapper.getCollection(true) : null;
+        if ( wrapper == null ) {
+            return null;
+        }
+        
+        Collection<MultiMapRecord> collection = wrapper.getCollection(false);
+        Collection<MultiMapRecord> result = new ArrayList<MultiMapRecord>( collection ) ;
         // delete from the backing map
-        wrapper.getCollection(false).clear();
+        collection.clear();
         return result;
     }
 
-    public Set<Data> keySet() {
-        Set<Data> keySet = multiMapWrappers.keySet();
-        Set<Data> keys = new HashSet<Data>(keySet.size());
-        keys.addAll(keySet);
-        return keys;
+    public List<Data> keySet() {
+        return new ArrayList<Data>(multiMapWrappers.keySet());
     }
 
     public Collection<MultiMapRecord> values() {
@@ -201,6 +207,7 @@ public class MultiMapContainer {
         return false;
     }
 
+    // WARNING: This is an incredibly inefficient method, and loads EVERYTHING into the heap
     public Map<Data, Collection<MultiMapRecord>> copyCollections() {
         Map<Data, Collection<MultiMapRecord>> map = new HashMap<Data, Collection<MultiMapRecord>>(multiMapWrappers.size());
         for (Map.Entry<Data, MultiMapWrapper> entry : multiMapWrappers.entrySet()) {

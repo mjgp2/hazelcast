@@ -33,7 +33,7 @@ public class DataRecordFactory implements RecordFactory<Data> {
     private final boolean optimizeQuery;
     private final boolean statisticsEnabled;
 
-    public DataRecordFactory( MapConfig config, SerializationService serializationService, PartitioningStrategy partitionStrategy) {
+    public DataRecordFactory(MapConfig config, SerializationService serializationService, PartitioningStrategy partitionStrategy) {
         this.serializationService = serializationService;
         this.partitionStrategy = partitionStrategy;
         this.statisticsEnabled = config.isStatisticsEnabled();
@@ -48,10 +48,13 @@ public class DataRecordFactory implements RecordFactory<Data> {
     @Override
     public Record<Data> newRecord(RecordStore recordsStore, Data key, Object value) {
         Data v = serializationService.toData(value, partitionStrategy);
+        DataRecord dataRecord;
         if (optimizeQuery) {
-            return new CachedDataRecord(recordsStore, key, v, statisticsEnabled);
+            dataRecord = new CachedDataRecord(recordsStore, key, v, statisticsEnabled);
+        } else {
+            dataRecord = new DataRecord(recordsStore, key, v, statisticsEnabled);
         }
-        return new DataRecord(recordsStore, key, v, statisticsEnabled);
+        return dataRecord;
     }
 
     @Override

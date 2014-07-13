@@ -21,6 +21,7 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.NavigableSet;
 import java.util.Set;
+import java.util.SortedSet;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.mapdb.Fun;
@@ -35,12 +36,12 @@ import com.hazelcast.spi.NodeEngine;
 public class MapDbSetWrapper implements Set<MultiMapRecord> {
 
     private AtomicInteger counter = new AtomicInteger();
-    private final NavigableSet<Tuple3<Data, Data, MultiMapRecord>> navigableSet;
+    private final NavigableSet<Tuple3<Data, Data, Long>> navigableSet;
     private final Data key;
     private NodeEngine nodeEngine;
 
     public MapDbSetWrapper(NodeEngine nodeEngine,
-            NavigableSet<Tuple3<Data, Data, MultiMapRecord>> navigableSet2,
+            NavigableSet<Tuple3<Data, Data, Long>> navigableSet2,
             Data key) {
         this.navigableSet = navigableSet2;
         this.key = key;
@@ -64,26 +65,31 @@ public class MapDbSetWrapper implements Set<MultiMapRecord> {
             return false;
         }
 
-        MultiMapRecord e = (MultiMapRecord) o;
+        Data d = getData((MultiMapRecord) o);
 
-        Data d = (Data) (e.getObject() instanceof Data ? e.getObject()
-                : nodeEngine.toData(e.getObject()));
-
-        return Fun.filter(navigableSet, key, d).iterator().hasNext();
+        return contains(d);
     }
 
+    private boolean contains(Data d) {
+        return !subSet(navigableSet, key, d).isEmpty();
+    }
+
+    @SuppressWarnings({ "rawtypes", "unchecked" })
+    public static <A, B, C> SortedSet<Fun.Tuple3<A, B, C>> subSet( NavigableSet<Fun.Tuple3<A, B, C>> secondaryKeys, final A a, final B b) {
+        return ((NavigableSet) secondaryKeys)
+                .subSet(Fun.t3(a, b, null),
+                        Fun.t3(a, b == null ? Fun.HI() : b, Fun.HI()));
+    }
+    
     public static <A, B, C> Iterable<Fun.Tuple3<A, B, C>> filter(
             final NavigableSet<Fun.Tuple3<A, B, C>> secondaryKeys, final A a,
             final B b) {
         return new Iterable<Fun.Tuple3<A, B, C>>() {
             @Override
             public Iterator<Fun.Tuple3<A, B, C>> iterator() {
+                
                 // use range query to get all values
-                @SuppressWarnings({ "unchecked", "rawtypes" })
-                final Iterator<Fun.Tuple3> iter = ((NavigableSet) secondaryKeys)
-                        .subSet(Fun.t3(a, b, null),
-                                Fun.t3(a, b == null ? Fun.HI() : b, Fun.HI()))
-                        .iterator();
+                final Iterator<Fun.Tuple3<A, B, C>> iter = subSet(secondaryKeys, a, b).iterator();
 
                 return new Iterator<Fun.Tuple3<A, B, C>>() {
                     @Override
@@ -91,7 +97,6 @@ public class MapDbSetWrapper implements Set<MultiMapRecord> {
                         return iter.hasNext();
                     }
 
-                    @SuppressWarnings("unchecked")
                     @Override
                     public Fun.Tuple3<A, B, C> next() {
                         return iter.next();
@@ -111,8 +116,8 @@ public class MapDbSetWrapper implements Set<MultiMapRecord> {
     public Iterator<MultiMapRecord> iterator() {
         return new Iterator<MultiMapRecord>() {
 
-            private Iterator<Tuple3<Data, Data, MultiMapRecord>> iterator = filter(navigableSet, key, null).iterator();
-            private Tuple3<Data, Data, MultiMapRecord> next;
+            private Iterator<Tuple3<Data, Data, Long>> iterator = filter(navigableSet, key, null).iterator();
+            private Tuple3<Data, Data, Long> current;
 
             @Override
             public boolean hasNext() {
@@ -121,18 +126,18 @@ public class MapDbSetWrapper implements Set<MultiMapRecord> {
 
             @Override
             public MultiMapRecord next() {
-                next = iterator.next();
-                if ( next == null ) {
+                current = iterator.next();
+                if ( current == null ) {
                     return null;
                 }
-                next.c.setObject(next.b);
-                return next.c;
+                MultiMapRecord record = new MultiMapRecord(current.c, current.b);
+                return record;
             }
 
             @Override
             public void remove() {
-                // don't delegate to iterator.next() because we want to update the count
-                MapDbSetWrapper.this.remove(next.c);
+                // don't delegate to iterator.remove() because we want to update the count
+                MapDbSetWrapper.this.remove(new MultiMapRecord(current.c, current.b));
             }
         };
     }
@@ -150,7 +155,10 @@ public class MapDbSetWrapper implements Set<MultiMapRecord> {
 
     @Override
     public <T> T[] toArray(T[] a) {
-        ArrayList<MultiMapRecord> temp = new ArrayList<MultiMapRecord>(this);
+        ArrayList<MultiMapRecord> temp = new ArrayList<MultiMapRecord>();
+        for (MultiMapRecord m : this) {
+            temp.add(m);
+        }
         temp.toArray(a);
         return a;
     }
@@ -158,15 +166,16 @@ public class MapDbSetWrapper implements Set<MultiMapRecord> {
     @Override
     public boolean add(MultiMapRecord e) {
 
-        if (!(e.getObject() instanceof Data)) {
-            e.setObject(nodeEngine.toData(e.getObject()));
+        // ensure the object is binary encoded
+        Data data = getData(e);
+        
+        if ( contains(data) ) {
+            return false;
         }
 
-        boolean added = navigableSet.add(Fun.t3(key, (Data) e.getObject(), e));
-        if (added) {
-            counter.incrementAndGet();
-        }
-        return added;
+        navigableSet.add(Fun.t3(key, data, e.getRecordId()));
+        counter.incrementAndGet();
+        return true;
     }
 
     @Override
@@ -176,22 +185,26 @@ public class MapDbSetWrapper implements Set<MultiMapRecord> {
             return false;
         }
 
-        MultiMapRecord e = (MultiMapRecord) o;
+        Data d = getData((MultiMapRecord) o);
 
-        Data d = (Data) (e.getObject() instanceof Data ? e.getObject()
-                : nodeEngine.toData(e.getObject()));
+        return remove(d);
+    }
 
-        Iterator<MultiMapRecord> iterator = Fun.filter(navigableSet, key, d)
-                .iterator();
-        if (!iterator.hasNext()) {
+    private boolean remove(Data d) {
+        SortedSet<Tuple3<Data, Data, Long>> set = subSet(navigableSet, key, d);
+        if (set.isEmpty()) {
             return false;
         }
 
-        MultiMapRecord removed = iterator.next();
-        iterator.remove();
+        set.clear();
         counter.decrementAndGet();
 
         return true;
+    }
+
+    private Data getData(MultiMapRecord e) {
+        Data d = (Data) (e.getObject() instanceof Data ? e.getObject() : nodeEngine.toData(e.getObject()));
+        return d;
     }
 
     @Override
@@ -220,18 +233,13 @@ public class MapDbSetWrapper implements Set<MultiMapRecord> {
 
     @Override
     public boolean removeAll(Collection<?> c) {
-        boolean ret = false;
-        for (Object o : c) {
-            ret = remove(o) || ret;
-        }
-        return ret;
+        throw new UnsupportedOperationException();
     }
 
     @Override
     public void clear() {
-        for (Object o : Fun.filter(navigableSet, key, null)) {
-            remove(o);
-        }
+        subSet(navigableSet, key, null).clear();
+        counter.set(0);
     }
 
 }

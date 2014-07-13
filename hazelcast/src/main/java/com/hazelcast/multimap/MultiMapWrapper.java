@@ -78,4 +78,8 @@ public class MultiMapWrapper {
         return ++version;
     }
 
+    public void destroy() {
+        collection.clear();
+    }
+
 }

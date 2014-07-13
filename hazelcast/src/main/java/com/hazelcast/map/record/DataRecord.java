@@ -16,29 +16,35 @@
 
 package com.hazelcast.map.record;
 
+import java.util.concurrent.atomic.AtomicLong;
+
 import com.hazelcast.map.DefaultRecordStore;
 import com.hazelcast.map.RecordStore;
 import com.hazelcast.nio.serialization.Data;
 
 public /*final*/ class DataRecord extends AbstractRecord<Data> implements Record<Data> {
 
+    
     // TODO: this is a total guess
     private static final int MAP_DB_ENTRY_HEAP_SIZE = 16;
     
     protected Data value;
     private DefaultRecordStore recordStore;
+    
+    private long dataId = -1;
 
     public DataRecord(RecordStore recordStore, Data keyData, Data value, boolean statisticsEnabled) {
-        super(keyData, false);
+        super(keyData, statisticsEnabled);
         DefaultRecordStore defaultRecordStore = (DefaultRecordStore) recordStore;
-        if ( statisticsEnabled ) {
-            this.statistics = defaultRecordStore.getRecordStatistics(keyData);
-        }
         this.recordStore = defaultRecordStore;
-        this.value = value;
+        setValue(value);
     }
 
     public DataRecord() {
+    }
+    
+    public long getDataId(){
+        return dataId;
     }
 
     /*
@@ -48,23 +54,39 @@ public /*final*/ class DataRecord extends AbstractRecord<Data> implements Record
     @Override
     public long getCost() {
         long size = super.getCost();
-
+        final int objectReferenceInBytes = 4;
         // add value size.
-        size += 4 + MAP_DB_ENTRY_HEAP_SIZE;
+        size += objectReferenceInBytes + ( dataId < 0 ? (value == null ? 0 : value.getHeapCost()) : MAP_DB_ENTRY_HEAP_SIZE );
         return size;
     }
 
     public Data getValue() {
+        if ( dataId >= 0 ) {
+            return recordStore.getData(dataId);
+        }
         return value;
     }
 
     public void setValue(Data o) {
-        value = o;
         
-        recordStore.updateRecord(this);
+        invalidate();
+        
+        if ( o == null ) {
+            value = null;
+            return;
+        }
+    
+        dataId = recordStore.addData(o);
+        if ( dataId < 0 ) { // we are storing on-heap
+            value = o;
+        }
     }
 
     public void invalidate() {
+        if ( dataId >=0 ) {
+            recordStore.deleteData(dataId);
+            dataId = -1;
+        }
         value = null;
     }
 }

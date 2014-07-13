@@ -24,6 +24,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
@@ -33,6 +34,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.mapdb.HTreeMap;
 
@@ -46,12 +48,11 @@ import com.hazelcast.logging.ILogger;
 import com.hazelcast.map.merge.MapMergePolicy;
 import com.hazelcast.map.operation.PutAllOperation;
 import com.hazelcast.map.record.DataRecord;
-import com.hazelcast.map.record.MapDBDataRecordSerializer;
 import com.hazelcast.map.record.Record;
 import com.hazelcast.map.record.RecordFactory;
-import com.hazelcast.map.record.RecordStatistics;
 import com.hazelcast.nio.serialization.Data;
 import com.hazelcast.nio.serialization.MapDBDataSerializer;
+import com.hazelcast.nio.serialization.MapDBLongSerializer;
 import com.hazelcast.nio.serialization.SerializationService;
 import com.hazelcast.query.impl.IndexService;
 import com.hazelcast.query.impl.QueryEntry;
@@ -72,9 +73,9 @@ public class DefaultRecordStore implements RecordStore {
     private final String name;
     private final String mapDbName;
     private final int partitionId;
-    private final ConcurrentMap<Data, Record> records;
-    private final ConcurrentMap<Data, RecordStatistics> stats = new ConcurrentHashMap<Data, RecordStatistics>();
-    
+    private final ConcurrentMap<Data, Record> records = new ConcurrentHashMap<Data, Record>(1000);
+    private final HTreeMap<Long, Data> recordData;
+    private final AtomicLong recordDataIdGenerator = new AtomicLong();
     private final Set<Data> toBeRemovedKeys = new HashSet<Data>();
     private final MapContainer mapContainer;
     private final MapService mapService;
@@ -96,7 +97,8 @@ public class DefaultRecordStore implements RecordStore {
         this.mapContainer = mapService.getMapContainer(name);
         this.logger = mapService.getNodeEngine().getLogger(this.getName());
         recordFactory = mapContainer.getRecordFactory();
-        this.records = makeMap();
+
+        this.recordData = makeRecordDataMap();
         NodeEngine nodeEngine = mapService.getNodeEngine();
         final LockService lockService = nodeEngine.getSharedService(LockService.SERVICE_NAME);
         this.lockStore = lockService == null ? null :
@@ -148,17 +150,17 @@ public class DefaultRecordStore implements RecordStore {
         }
     }
 
-    private ConcurrentMap<Data, Record> makeMap() {
+    private HTreeMap<Long, Data> makeRecordDataMap() {
         if ( recordFactory.getStorageFormat() == InMemoryFormat.BINARY ) {
             return ((HazelcastInstanceImpl) mapService.getNodeEngine().getHazelcastInstance()).getMapDb()
                     .createHashMap(mapDbName)
-                    .keySerializer(new MapDBDataSerializer(mapService.getNodeEngine().getSerializationService()))
-                    .valueSerializer(new MapDBDataRecordSerializer(mapService.getNodeEngine().getSerializationService(), this))
+                    .keySerializer(new MapDBLongSerializer())
+                    .valueSerializer(new MapDBDataSerializer(mapService.getNodeEngine().getSerializationService()))
                     .counterEnable()
                     .make();
         }
 
-        return new ConcurrentHashMap<Data, Record>(1000);
+        return null;
     }
 
     public boolean isLoaded() {
@@ -287,7 +289,23 @@ public class DefaultRecordStore implements RecordStore {
             case OBJECT:
                 records.clear();
                 if (excludeRecords != null && !excludeRecords.isEmpty()) {
+                    if ( recordData != null ) {
+                        List<Long> dataIds = new ArrayList<Long>(excludeRecords.size());
+                        for ( Record e : excludeRecords.values() ) {
+                            dataIds.add(((DataRecord)e).getDataId());
+                        }
+                        Iterator<Long> i = recordData.keySet().iterator();
+                        while ( i.hasNext() ) {
+                            if ( ! dataIds.contains(i.next()) ) {
+                                i.remove();
+                            }
+                        }
+                    }
                     records.putAll(excludeRecords);
+                } else {
+                    if ( recordData != null ) {
+                        recordData.clear();
+                    }
                 }
                 return;
 
@@ -309,7 +327,14 @@ public class DefaultRecordStore implements RecordStore {
 
     public int size() {
         // do not add checkIfLoaded(), size() is also used internally
-        return records.size();
+        int size = records.size();
+        if ( recordData != null ) {
+            int dataSize = recordData.size();
+            if ( size != dataSize ) {
+                logger.warning("Memory leak? Data has a different size to records: "+size+" != "+dataSize);
+            }
+        }
+        return size;
     }
 
     public boolean isEmpty() {
@@ -1093,22 +1118,25 @@ public class DefaultRecordStore implements RecordStore {
         }
     }
 
-    public RecordStatistics getRecordStatistics(Data keyData) {
-        
-        RecordStatistics recordStatistics = new RecordStatistics();
-        if ( stats.putIfAbsent(keyData, recordStatistics) == null ) {
-            return recordStatistics;
+    public long addData(Data data) {
+        if ( recordData == null || data == null ) {
+            return -1L;
         }
-        
-        return stats.get(keyData);
+        long id = recordDataIdGenerator.incrementAndGet();
+        recordData.put(id, data);
+        return id;
     }
 
-    public void updateRecord(DataRecord dataRecord) {
+    public Data getData(long dataId) {
+        if ( recordData != null ) {
+            return recordData.get(dataId);
+        }
+        return null;
+    }
 
-        // TODO: Would be good if this didn't bother to return the replaced value for MapDB
-        // re-insert to update off-heap
-        if ( records instanceof HTreeMap ) {
-            records.put(dataRecord.getKey(), dataRecord);
+    public void deleteData(long dataId) {
+        if ( recordData != null ) {
+            recordData.remove(dataId);
         }
     }
     
