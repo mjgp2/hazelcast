@@ -31,6 +31,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
+import org.mapdb.HTreeMap;
 import org.mapdb.Serializer;
 
 import com.hazelcast.config.QueueConfig;
@@ -43,6 +44,7 @@ import com.hazelcast.nio.ObjectDataInput;
 import com.hazelcast.nio.ObjectDataOutput;
 import com.hazelcast.nio.serialization.Data;
 import com.hazelcast.nio.serialization.IdentifiedDataSerializable;
+import com.hazelcast.nio.serialization.MapDBDataSerializer;
 import com.hazelcast.spi.NodeEngine;
 import com.hazelcast.transaction.TransactionException;
 import com.hazelcast.util.Clock;
@@ -57,8 +59,7 @@ public class QueueContainer implements IdentifiedDataSerializable {
     private LinkedList<QueueItem> itemQueue = null;
     private HashMap<Long, QueueItem> backupMap = null;
     private final Map<Long, TxQueueItem> txMap = new HashMap<Long, TxQueueItem>();
-    private final HashMap<Long, Data> dataMap = new HashMap<Long, Data>();
-    private  Map<Long, byte[]> dbMap; 
+    private HTreeMap<Long, Data> dataMap;
 
     private QueueConfig config;
     private QueueStoreWrapper store;
@@ -87,37 +88,13 @@ public class QueueContainer implements IdentifiedDataSerializable {
 
     public QueueContainer(String name) {
         this.name = name;
-        this.pollWaitNotifyKey = null;
-        this.offerWaitNotifyKey = null;
-        this.mapDbName = null;
+        pollWaitNotifyKey = new QueueWaitNotifyKey(name, "poll");
+        offerWaitNotifyKey = new QueueWaitNotifyKey(name, "offer");
+        mapDbName = name+"-map-"+UUID.randomUUID();
     }
 
     public QueueContainer(String name, QueueConfig config, NodeEngine nodeEngine, QueueService service) throws Exception {
-        this.name = name;
-        mapDbName = "queueMap-"+name+"-"+UUID.randomUUID();
-        pollWaitNotifyKey = new QueueWaitNotifyKey(name, "poll");
-        offerWaitNotifyKey = new QueueWaitNotifyKey(name, "offer");
-        
-        
-        if ( config.getQueueStoreConfig() == null || ! config.getQueueStoreConfig().isEnabled()) {
-            dbMap = ((HazelcastInstanceImpl)nodeEngine.getHazelcastInstance()).getMapDb()
-                    .createHashMap(mapDbName)
-                    .keySerializer(Serializer.LONG)
-                    .valueSerializer(Serializer.BYTE_ARRAY)
-                    .counterEnable()
-                    .make();
-            QueueStoreConfig queueStoreConfig = new QueueStoreConfig();
-            queueStoreConfig.setEnabled(true);
-            queueStoreConfig.setStoreImplementation(new MapDbQueueStore(dbMap));
-            queueStoreConfig.setProperty("binary", "true");
-            queueStoreConfig.setProperty("memory-limit", "-1");
-            queueStoreConfig.setProperty("bulk-load", "1");
-            QueueConfig conf = new QueueConfig(config);
-            conf.setQueueStoreConfig(queueStoreConfig);
-            config = conf;
-        }
-        
-        
+        this(name);
         setConfig(config, nodeEngine, service);
     }
 
@@ -156,7 +133,7 @@ public class QueueContainer implements IdentifiedDataSerializable {
             item = new QueueItem(this, txItem.getItemId(), txItem.getData());
             return item;
         }
-        if (store.isEnabled() && item.getData() == null) {
+        if (store.isEnabled() && item.noDataLocally()) {
             try {
                 load(item);
             } catch (Exception e) {
@@ -196,7 +173,7 @@ public class QueueContainer implements IdentifiedDataSerializable {
                 logger.severe("Error during store delete: " + item.getItemId(), e);
             }
         }
-        return item.getData();
+        return dataMap.remove(item.getItemId());
     }
 
     public boolean txnRollbackPoll(long itemId, boolean backup) {
@@ -233,7 +210,7 @@ public class QueueContainer implements IdentifiedDataSerializable {
         } else if (item == null) {
             item = new QueueItem(this, itemId, data);
         }
-        item.setData(data);
+        dataMap.put(item.getItemId(), data);
         if (!backup) {
             getItemQueue().offer(item);
             cancelEvictionIfExists();
@@ -279,7 +256,7 @@ public class QueueContainer implements IdentifiedDataSerializable {
             item = new QueueItem(this, txItem.getItemId(), txItem.getData());
             return item;
         }
-        if (store.isEnabled() && item.getData() == null) {
+        if (store.isEnabled() && item.noDataLocally()) {
             try {
                 load(item);
             } catch (Exception e) {
@@ -301,20 +278,24 @@ public class QueueContainer implements IdentifiedDataSerializable {
                 throw new HazelcastException(e);
             }
         }
-        if (!store.isEnabled() || store.getMemoryLimit() > getItemQueue().size()) {
-            item.setData(data);
-        }
+        putInDataMap(data, item);
         getItemQueue().offer(item);
         cancelEvictionIfExists();
         return item.getItemId();
     }
 
+    void putInDataMap(Data data, QueueItem item) {
+        if (!store.isEnabled() || store.getMemoryLimit() > getItemQueue().size()) {
+            dataMap.put(item.getItemId(), data);
+            item.setData(null);
+        }
+    }
+
     public void offerBackup(Data data, long itemId) {
         QueueItem item = new QueueItem(this, itemId, null);
-        if (!store.isEnabled() || store.getMemoryLimit() > getItemQueue().size()) {
-            item.setData(data);
-        }
+        putInDataMap(data, item);
         getBackupMap().put(itemId, item);
+        setId(item.getItemId());
     }
 
     public Map<Long, Data> addAll(Collection<Data> dataList) {
@@ -322,18 +303,18 @@ public class QueueContainer implements IdentifiedDataSerializable {
         List<QueueItem> list = new ArrayList<QueueItem>(dataList.size());
         for (Data data : dataList) {
             QueueItem item = new QueueItem(this, nextId(), null);
-            if (!store.isEnabled() || store.getMemoryLimit() > getItemQueue().size()) {
-                item.setData(data);
-            }
             map.put(item.getItemId(), data);
             list.add(item);
         }
-        if (store.isEnabled() && !map.isEmpty()) {
-            try {
-                store.storeAll(map);
-            } catch (Exception e) {
-                throw new HazelcastException(e);
+        if (!map.isEmpty()) {
+            if (store.isEnabled()) {
+                try {
+                    store.storeAll(map);
+                } catch (Exception e) {
+                    throw new HazelcastException(e);
+                }
             }
+            dataMap.putAll(map);
         }
         if (!list.isEmpty()){
             getItemQueue().addAll(list);
@@ -343,13 +324,21 @@ public class QueueContainer implements IdentifiedDataSerializable {
     }
 
     public void addAllBackup(Map<Long, Data> dataMap) {
+        
+        Map<Long, Data> map = new HashMap<Long, Data>(dataMap.size());
         for (Map.Entry<Long, Data> entry : dataMap.entrySet()) {
             QueueItem item = new QueueItem(this, entry.getKey(), null);
             if (!store.isEnabled() || store.getMemoryLimit() > getItemQueue().size()) {
-                item.setData(entry.getValue());
+                map.put(item.getItemId(), entry.getValue());
             }
+            setId(item.getItemId());
             getBackupMap().put(item.getItemId(), item);
         }
+        
+        if (!map.isEmpty()) {
+        	dataMap.putAll(map);
+        }
+        
     }
 
     public QueueItem peek() {
@@ -357,7 +346,7 @@ public class QueueContainer implements IdentifiedDataSerializable {
         if (item == null) {
             return null;
         }
-        if (store.isEnabled() && item.getData() == null) {
+        if (store.isEnabled() && item.noDataLocally()) {
             try {
                 load(item);
             } catch (Exception e) {
@@ -372,6 +361,7 @@ public class QueueContainer implements IdentifiedDataSerializable {
         if (item == null) {
             return null;
         }
+        item.setData(dataMap.remove(item.getItemId()));
         if (store.isEnabled()) {
             try {
                 store.delete(item.getItemId());
@@ -400,7 +390,8 @@ public class QueueContainer implements IdentifiedDataSerializable {
         Iterator<QueueItem> iter = getItemQueue().iterator();
         for (int i = 0; i < maxSize; i++) {
             QueueItem item = iter.next();
-            if (store.isEnabled() && item.getData() == null) {
+            item.setData(dataMap.remove(item.getItemId()));
+            if (store.isEnabled() && item.noDataLocally()) {
                 try {
                     load(item);
                 } catch (Exception e) {
@@ -486,6 +477,7 @@ public class QueueContainer implements IdentifiedDataSerializable {
                         throw new HazelcastException(e);
                     }
                 }
+                dataMap.remove(item.getItemId());
                 iter.remove();
                 age(item, Clock.currentTimeMillis()); //For Stats
                 scheduleEvictionIfEmpty();
@@ -501,12 +493,14 @@ public class QueueContainer implements IdentifiedDataSerializable {
 
     /**
      * This method does not trigger store load.
+     * WARNING: This is a VERY expensive method
      */
     public boolean contains(Collection<Data> dataSet) {
         for (Data data : dataSet) {
             boolean contains = false;
             for (QueueItem item : getItemQueue()) {
-                if (item.getData() != null && item.getData().equals(data)){
+                Data itemData = item.getData();
+                if (itemData != null && itemData.equals(data)){
                     contains = true;
                     break;
                 }
@@ -520,11 +514,12 @@ public class QueueContainer implements IdentifiedDataSerializable {
 
     /**
      * This method triggers store load.
+     * WARNING: This is a VERY expensive method
      */
     public List<Data> getAsDataList() {
         List<Data> dataList = new ArrayList<Data>(getItemQueue().size());
         for (QueueItem item : getItemQueue()) {
-            if (store.isEnabled() && item.getData() == null) {
+            if (store.isEnabled() && item.noDataLocally()) {
                 try {
                     load(item);
                 } catch (Exception e) {
@@ -538,20 +533,27 @@ public class QueueContainer implements IdentifiedDataSerializable {
 
     /**
      * This method triggers store load
+     * WARNING: This is a VERY expensive method
      */
     public Map<Long, Data> compareAndRemove(Collection<Data> dataList, boolean retain) {
         LinkedHashMap<Long, Data> map = new LinkedHashMap<Long, Data>();
-        for (QueueItem item : getItemQueue()) {
-            if (item.getData() == null && store.isEnabled()) {
+        for ( Iterator<QueueItem> it = getItemQueue().iterator(); it.hasNext(); ) {
+            QueueItem item = it.next();
+            Data data = item.getData();
+            if (data == null && store.isEnabled()) {
                 try {
                     load(item);
+                    data = item.getData();
                 } catch (Exception e) {
                     throw new HazelcastException(e);
                 }
             }
-            boolean contains = dataList.contains(item.getData());
+            boolean contains = dataList.contains(data);
             if ((retain && !contains) || (!retain && contains)) {
-                map.put(item.getItemId(), item.getData());
+                // we will be returning this
+                dataMap.remove(item.getItemId());
+                map.put(item.getItemId(), data);
+                it.remove();
             }
         }
         if (map.size() > 0) {
@@ -560,14 +562,6 @@ public class QueueContainer implements IdentifiedDataSerializable {
                     store.deleteAll(map.keySet());
                 } catch (Exception e) {
                     throw new HazelcastException(e);
-                }
-            }
-            Iterator<QueueItem> iter = getItemQueue().iterator();
-            while (iter.hasNext()) {
-                QueueItem item = iter.next();
-                if (map.containsKey(item.getItemId())) {
-                    iter.remove();
-                    age(item, Clock.currentTimeMillis());//For Stats
                 }
             }
             scheduleEvictionIfEmpty();
@@ -632,12 +626,14 @@ public class QueueContainer implements IdentifiedDataSerializable {
         return backupMap;
     }
 
-
-
     public Data getDataFromMap(long itemId) {
-        return dataMap.remove(itemId);
+        return dataMap.get(itemId);
     }
-
+    
+    public boolean hasDataInMap(long itemId) {
+        return dataMap.containsKey(itemId);
+    }
+    
     public void setConfig(QueueConfig config, NodeEngine nodeEngine, QueueService service) {
         this.nodeEngine = nodeEngine;
         this.service = service;
@@ -646,6 +642,15 @@ public class QueueContainer implements IdentifiedDataSerializable {
         this.config = new QueueConfig(config);
         QueueStoreConfig storeConfig = config.getQueueStoreConfig();
         store.setConfig(storeConfig, name);
+        
+        // TODO: worth having a cache here?
+        dataMap = ((HazelcastInstanceImpl)nodeEngine.getHazelcastInstance()).getMapDb()
+                .createHashMap(mapDbName)
+                .keySerializer(Serializer.LONG)
+                .valueSerializer(new MapDBDataSerializer(nodeEngine.getSerializationService()))
+                .counterEnable()
+                .make();
+        
     }
 
     long nextId() {
@@ -768,9 +773,8 @@ public class QueueContainer implements IdentifiedDataSerializable {
             }
             txMap.clear();
         } finally { 
-            if ( dbMap != null ) {
+            if ( dataMap != null ) {
                 ((HazelcastInstanceImpl)nodeEngine.getHazelcastInstance()).getMapDb().delete(mapDbName);
-                dbMap = null;
             }
         }
     }
@@ -781,5 +785,13 @@ public class QueueContainer implements IdentifiedDataSerializable {
 
     public int getId() {
         return QueueDataSerializerHook.QUEUE_CONTAINER;
+    }
+    
+    HTreeMap<Long, Data> getDataMap() {
+        return dataMap;
+    }
+
+    Map<Long, TxQueueItem> getTxMap() {
+        return txMap;
     }
 }
