@@ -377,6 +377,7 @@ public class QueueContainer implements IdentifiedDataSerializable {
 
     public void pollBackup(long itemId) {
         QueueItem item = getBackupMap().remove(itemId);
+        dataMap.remove(itemId);
         if (item != null) {
             age(item, Clock.currentTimeMillis());//For Stats
         }
