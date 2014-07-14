@@ -18,6 +18,7 @@ package com.hazelcast.multimap.txn;
 
 import com.hazelcast.multimap.MultiMapContainer;
 import com.hazelcast.multimap.MultiMapDataSerializerHook;
+import com.hazelcast.multimap.MultiMapDataRecord;
 import com.hazelcast.multimap.MultiMapRecord;
 import com.hazelcast.multimap.MultiMapWrapper;
 import com.hazelcast.multimap.operations.MultiMapKeyBasedOperation;
@@ -54,7 +55,7 @@ public class TxnPutBackupOperation extends MultiMapKeyBasedOperation {
             return;
         }
         Collection<MultiMapRecord> coll = wrapper.getCollection(false);
-        MultiMapRecord record = new MultiMapRecord(recordId, isBinary() ? value : toObject(value));
+        MultiMapRecord record = isBinary() ? new MultiMapDataRecord(recordId, value) : new MultiMapRecord( recordId, toObject(value));
         coll.add(record);
     }
 

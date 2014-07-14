@@ -24,16 +24,13 @@ import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.Map.Entry;
-import java.util.NavigableSet;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.mapdb.BTreeKeySerializer;
-import org.mapdb.BTreeKeySerializer.Tuple3KeySerializer;
-import org.mapdb.Fun.Tuple3;
+import org.mapdb.HTreeMap;
 import org.mapdb.Serializer;
 
 import com.hazelcast.concurrent.lock.LockService;
@@ -72,11 +69,8 @@ public class MultiMapContainer {
     final AtomicLong lastUpdateTime = new AtomicLong();
     final long creationTime;
 
-    // START MAPDB VARS
-    private final NavigableSet<Tuple3<Data, Data, Long>> dataSet;
-    private final String mapDbName;
-    private final String mapDbRecordName;
-    // END MAPDB VARS
+    private String mapDbName;
+    private HTreeMap<Long, Data> dataMap;
     
     public MultiMapContainer(String name, MultiMapService service, int partitionId) {
         this.name = name;
@@ -85,23 +79,17 @@ public class MultiMapContainer {
         this.partitionId = partitionId;
         this.config = nodeEngine.getConfig().findMultiMapConfig(name);
         
+        this.mapDbName = name+'-'+partitionId+'-'+UUID.randomUUID();
+        this.dataMap = ((HazelcastInstanceImpl) nodeEngine.getHazelcastInstance()).getMapDb().createHashMap(mapDbName).keySerializer(Serializer.LONG).valueSerializer(new MapDBDataSerializer(nodeEngine.getSerializationService())).make();
 
         this.lockNamespace = new DefaultObjectNamespace(MultiMapService.SERVICE_NAME, name);
         final LockService lockService = nodeEngine.getSharedService(LockService.SERVICE_NAME);
         this.lockStore = lockService == null ? null : lockService.createLockStore(partitionId, lockNamespace);
         creationTime = Clock.currentTimeMillis();
-        
-        if ( config.isBinary() ) {
-            this.mapDbName = name+'-'+partitionId;
-            this.mapDbRecordName = name+'-'+partitionId+"-records";
-            BTreeKeySerializer<Tuple3<Data, Data, Long>> serializer = 
-                    new Tuple3KeySerializer<Data, Data, Long>(null, null, new MapDBDataSerializer(service.getSerializationService()), new MapDBDataSerializer(service.getSerializationService()), Serializer.LONG);
-            this.dataSet = ((HazelcastInstanceImpl) nodeEngine.getHazelcastInstance()).getMapDb().createTreeSet(mapDbName).serializer(serializer).make();
-        } else {
-            this.mapDbName = null;
-            this.mapDbRecordName = null;
-            this.dataSet = null;
-        }
+    }
+    
+    public HTreeMap<Long, Data> getDataMap() {
+        return dataMap;
     }
 
     public boolean canAcquireLock(Data dataKey, String caller, long threadId) {
@@ -139,19 +127,20 @@ public class MultiMapContainer {
     public MultiMapWrapper getOrCreateMultiMapWrapper(Data dataKey) {
         MultiMapWrapper wrapper = multiMapWrappers.get(dataKey);
         if (wrapper == null) {
-            Collection<MultiMapRecord> coll;
+            Collection<? extends MultiMapRecord> coll;
             if (config.getValueCollectionType().equals(MultiMapConfig.ValueCollectionType.SET)) {
-                if ( config.isBinary() ) {
-                    coll = new MapDbSetWrapper(nodeEngine, dataSet, dataKey);
-                } else {
-                    coll = new HashSet<MultiMapRecord>(10);
-                }
+                coll = new HashSet<MultiMapRecord>(10);
             } else if (config.getValueCollectionType().equals(MultiMapConfig.ValueCollectionType.LIST)) {
                 coll = new LinkedList<MultiMapRecord>();
             } else {
                 throw new IllegalArgumentException("No Matching CollectionProxyType!");
             }
-            wrapper = new MultiMapWrapper(coll);
+
+            if ( config.isBinary() ) {
+                coll = new MapDbCollectionWrapper((Collection<MultiMapDataRecord>) coll, nodeEngine, this);
+            }
+            
+            wrapper = new MultiMapWrapper(coll, this);
             multiMapWrappers.put(dataKey, wrapper);
         }
         return wrapper;
@@ -183,6 +172,9 @@ public class MultiMapContainer {
         
         Collection<MultiMapRecord> collection = wrapper.getCollection(false);
         Collection<MultiMapRecord> result = new ArrayList<MultiMapRecord>( collection ) ;
+        for ( MultiMapRecord r : result ) {
+            ((MultiMapDataRecord) r).loadAndSetObject();
+        }
         // delete from the backing map
         collection.clear();
         return result;
@@ -209,7 +201,7 @@ public class MultiMapContainer {
         if (wrapper == null) {
             return false;
         }
-        MultiMapRecord record = new MultiMapRecord(binary ? value : nodeEngine.toObject(value));
+        MultiMapRecord record = binary ? new MultiMapDataRecord(value) : new MultiMapRecord( getNodeEngine().toObject(value));
         return wrapper.getCollection(false).contains(record);
     }
 
@@ -270,9 +262,6 @@ public class MultiMapContainer {
             lockService.clearLockStore(partitionId, lockNamespace);
         }
         multiMapWrappers.clear();
-        if ( dataSet != null ) {
-            ((HazelcastInstanceImpl) nodeEngine.getHazelcastInstance()).getMapDb().delete(mapDbName);
-        }
     }
 
     public void access() {
@@ -297,5 +286,14 @@ public class MultiMapContainer {
 
     public long getLockedCount() {
         return lockStore.getLockedKeys().size();
+    }
+
+    public void writeData(MultiMapDataRecord e) {
+        if ( ! ( e.getObject() instanceof Data ) ) {
+            throw new AssertionError("Expected a Data object");
+        }
+        Data data = (Data) e.getObject();
+        e.setObjectId(dataMap, idGen.incrementAndGet(), data.hashCode());
+        dataMap.put(e.getObjectId(), data);
     }
 }

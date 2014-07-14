@@ -18,6 +18,7 @@ package com.hazelcast.multimap.operations;
 
 import com.hazelcast.core.EntryEventType;
 import com.hazelcast.multimap.MultiMapDataSerializerHook;
+import com.hazelcast.multimap.MultiMapDataRecord;
 import com.hazelcast.multimap.MultiMapRecord;
 import com.hazelcast.multimap.MultiMapWrapper;
 import com.hazelcast.nio.IOUtil;
@@ -53,17 +54,20 @@ public class RemoveOperation extends MultiMapBackupAwareOperation {
             return;
         }
         Collection<MultiMapRecord> coll = wrapper.getCollection(false);
-        MultiMapRecord record = new MultiMapRecord(isBinary() ? value : toObject(value));
-        
-        boolean removed = coll.remove(record);
-        
-        if ( removed ) {
-            if (coll.isEmpty()) {
-                delete();
+        MultiMapRecord record = isBinary() ? new MultiMapDataRecord(value) : new MultiMapRecord( toObject(value));
+        Iterator<MultiMapRecord> iter = coll.iterator();
+        while (iter.hasNext()) {
+            MultiMapRecord r = iter.next();
+            if (r.equals(record)) {
+                iter.remove();
+                recordId = r.getRecordId();
+                response = true;
+                if (coll.isEmpty()) {
+                    delete();
+                }
+                break;
             }
         }
-        
-        response = removed;
     }
 
     public void afterRun() throws Exception {

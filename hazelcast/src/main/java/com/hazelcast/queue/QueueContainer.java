@@ -111,6 +111,7 @@ public class QueueContainer implements IdentifiedDataSerializable {
             queueStoreConfig.setStoreImplementation(new MapDbQueueStore(dbMap));
             queueStoreConfig.setProperty("binary", "true");
             queueStoreConfig.setProperty("memory-limit", "-1");
+            queueStoreConfig.setProperty("bulk-load", "1");
             QueueConfig conf = new QueueConfig(config);
             conf.setQueueStoreConfig(queueStoreConfig);
             config = conf;
