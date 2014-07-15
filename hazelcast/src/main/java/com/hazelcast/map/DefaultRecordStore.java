@@ -35,6 +35,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.logging.Level;
 
 import org.mapdb.HTreeMap;
 import org.mapdb.Serializer;
@@ -328,7 +329,7 @@ public class DefaultRecordStore implements RecordStore {
     public int size() {
         // do not add checkIfLoaded(), size() is also used internally
         int size = records.size();
-        if ( recordData != null ) {
+        if ( logger.isLoggable(Level.FINE) && recordData != null ) {
             int dataSize = recordData.size();
             if ( size != dataSize ) {
                 logger.warning("Memory leak? Data has a different size to records: "+size+" != "+dataSize);

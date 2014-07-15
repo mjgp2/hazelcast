@@ -56,7 +56,12 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 
 /**
@@ -68,7 +73,19 @@ public class QueueService implements ManagedService, MigrationAwareService, Tran
         RemoteService, EventPublishingService<QueueEvent, ItemListener> {
 
     public static final String SERVICE_NAME = "hz:impl:queueService";
-
+    private static final ThreadPoolExecutor EXECUTOR = new ThreadPoolExecutor(0, Integer.MAX_VALUE,
+            60L, TimeUnit.SECONDS,
+            new SynchronousQueue<Runnable>(), new ThreadFactory() {
+                
+                @Override
+                public Thread newThread(Runnable r) {
+                    Thread t = new Thread(r);
+                    t.setName("QueueService-"+t.getId());
+                    t.setDaemon(true);
+                    return t;
+                }
+            });
+    
     private final NodeEngine nodeEngine;
     private final ConcurrentMap<String, QueueContainer> containerMap = new ConcurrentHashMap<String, QueueContainer>();
     private final ConcurrentMap<String, LocalQueueStatsImpl> statsMap = new ConcurrentHashMap<String, LocalQueueStatsImpl>(1000);
@@ -126,7 +143,16 @@ public class QueueService implements ManagedService, MigrationAwareService, Tran
     }
 
     public void addContainer(String name, QueueContainer container) {
-        containerMap.put(name, container);
+        final QueueContainer replaced = containerMap.put(name, container);
+        if ( replaced != null ) {
+            EXECUTOR.submit(new Runnable() {
+                
+                @Override
+                public void run() {
+                    replaced.destroy();
+                }
+            });
+        }
     }
 
     // need for testing..
