@@ -110,6 +110,7 @@
                             <artifactSet>
                                 <includes>
                                     <include>com.hazelcast:*:*</include>
+                                    <include>org.mapdb:*:*</include>
                                 </includes>
                                 <excludes>
                                     <exclude>com.hazelcast:hazelcast-all:*</exclude>

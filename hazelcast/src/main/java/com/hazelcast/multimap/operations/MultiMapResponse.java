@@ -16,6 +16,7 @@
 
 package com.hazelcast.multimap.operations;
 
+import com.hazelcast.multimap.MultiMapDataRecord;
 import com.hazelcast.multimap.MultiMapRecord;
 import com.hazelcast.nio.ObjectDataInput;
 import com.hazelcast.nio.ObjectDataOutput;
@@ -73,7 +74,7 @@ public class MultiMapResponse implements DataSerializable {
         }
         Collection coll = new ArrayList(collection.size());
         for (Object obj : collection) {
-            MultiMapRecord record = nodeEngine.toObject(obj);
+            MultiMapDataRecord record = nodeEngine.toObject(obj);
             coll.add(nodeEngine.toObject(record.getObject()));
         }
         return coll;
