@@ -25,6 +25,8 @@ import com.hazelcast.core.LifecycleEvent;
 import com.hazelcast.core.LifecycleListener;
 import com.hazelcast.core.Member;
 import com.hazelcast.core.MultiMap;
+import com.hazelcast.instance.MemberImpl;
+import com.hazelcast.nio.Address;
 
 public class Benchmark {
 
@@ -33,13 +35,13 @@ public class Benchmark {
 	static AtomicLong idGen = new AtomicLong();
 	static LinkedBlockingDeque<Long> idQueue = new LinkedBlockingDeque<Long>(
 			10000);
-	static List<Member> members = new ArrayList<Member>();
+	static List<Address> members = new ArrayList<Address>();
 
 	static String str1 = getLongString(0, 5000);
 	static String str2 = getLongString(1, 5001);
 	static List<String> mmapCollection = Arrays.asList(str1,str2);
 	
-	static int threads = 3;
+	static int threads = 2;
 	static AtomicInteger count = new AtomicInteger();
 	static ReentrantLock lock = new ReentrantLock();
 
@@ -56,7 +58,9 @@ public class Benchmark {
 			}
 		}
 		
-		startClient();
+		for (int thread = 1; thread <= threads * 2; thread++) {
+			startClient();
+		}
 
 	}
 
@@ -106,9 +110,9 @@ public class Benchmark {
 				clientConfig.setLoadBalancer(new LoadBalancer() {
 
 					public Member next() {
+						
 						synchronized (members) {
-							return members.get((int) (Math.random() * members
-									.size()));
+							return new MemberImpl(members.get((int) (Math.random() * members.size())), false);
 						}
 					}
 
@@ -262,7 +266,7 @@ public class Benchmark {
 
 				HazelcastInstance instance = Hazelcast
 						.newHazelcastInstance(cfg);
-				final Member member = instance.getCluster().getLocalMember();
+				final Address member = ((MemberImpl) instance.getCluster().getLocalMember()).getAddress();
 				instance.getLifecycleService().addLifecycleListener(
 						new LifecycleListener() {
 
@@ -281,7 +285,9 @@ public class Benchmark {
 									break;
 								case SHUTTING_DOWN:
 									synchronized (members) {
-										members.remove(member);
+										if ( ! members.remove(member) ) {
+											System.err.println("!!!!! CANNOT FIND MEMBER");
+										}
 									}
 									break;
 								case STARTED:
