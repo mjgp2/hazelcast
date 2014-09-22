@@ -16,6 +16,19 @@
 
 package com.hazelcast.queue;
 
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Properties;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+
 import com.hazelcast.core.ItemEvent;
 import com.hazelcast.core.ItemEventType;
 import com.hazelcast.core.ItemListener;
@@ -29,18 +42,23 @@ import com.hazelcast.partition.strategy.StringPartitioningStrategy;
 import com.hazelcast.queue.proxy.QueueProxyImpl;
 import com.hazelcast.queue.tx.QueueTransactionRollbackOperation;
 import com.hazelcast.queue.tx.TransactionalQueueProxy;
-import com.hazelcast.spi.*;
+import com.hazelcast.spi.EventPublishingService;
+import com.hazelcast.spi.EventRegistration;
+import com.hazelcast.spi.EventService;
+import com.hazelcast.spi.ManagedService;
+import com.hazelcast.spi.MigrationAwareService;
+import com.hazelcast.spi.NodeEngine;
+import com.hazelcast.spi.Operation;
+import com.hazelcast.spi.PartitionMigrationEvent;
+import com.hazelcast.spi.PartitionReplicationEvent;
+import com.hazelcast.spi.RemoteService;
+import com.hazelcast.spi.TransactionalService;
 import com.hazelcast.transaction.impl.TransactionSupport;
 import com.hazelcast.util.ConcurrencyUtil;
 import com.hazelcast.util.ConstructorFunction;
 import com.hazelcast.util.scheduler.EntryTaskScheduler;
 import com.hazelcast.util.scheduler.EntryTaskSchedulerFactory;
 import com.hazelcast.util.scheduler.ScheduleType;
-
-import java.util.*;
-import java.util.Map.Entry;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 /**
  * User: ali
@@ -51,8 +69,23 @@ public class QueueService implements ManagedService, MigrationAwareService, Tran
         RemoteService, EventPublishingService<QueueEvent, ItemListener> {
 
     public static final String SERVICE_NAME = "hz:impl:queueService";
+
     protected static final StringPartitioningStrategy PARTITIONING_STRATEGY = new StringPartitioningStrategy();
 
+
+    private static final ThreadPoolExecutor EXECUTOR = new ThreadPoolExecutor(0, Integer.MAX_VALUE,
+            60L, TimeUnit.SECONDS,
+            new SynchronousQueue<Runnable>(), new ThreadFactory() {
+                
+                @Override
+                public Thread newThread(Runnable r) {
+                    Thread t = new Thread(r);
+                    t.setName("QueueService-"+t.getId());
+                    t.setDaemon(true);
+                    return t;
+                }
+            });
+    
     private final NodeEngine nodeEngine;
     private final ConcurrentMap<String, QueueContainer> containerMap = new ConcurrentHashMap<String, QueueContainer>();
     private final ConcurrentMap<String, LocalQueueStatsImpl> statsMap = new ConcurrentHashMap<String, LocalQueueStatsImpl>(1000);
@@ -106,7 +139,16 @@ public class QueueService implements ManagedService, MigrationAwareService, Tran
     }
 
     public void addContainer(String name, QueueContainer container) {
-        containerMap.put(name, container);
+        final QueueContainer replaced = containerMap.put(name, container);
+        if ( replaced != null ) {
+            EXECUTOR.submit(new Runnable() {
+                
+                @Override
+                public void run() {
+                    replaced.destroy();
+                }
+            });
+        }
     }
 
     // need for testing..
@@ -176,8 +218,12 @@ public class QueueService implements ManagedService, MigrationAwareService, Tran
     }
 
     public void destroyDistributedObject(String name) {
-        containerMap.remove(name);
-        nodeEngine.getEventService().deregisterAllListeners(SERVICE_NAME, name);
+        try {
+            QueueContainer c = containerMap.remove(name);
+            c.destroy();
+        } finally {
+            nodeEngine.getEventService().deregisterAllListeners(SERVICE_NAME, name);
+        }
     }
 
     public String addItemListener(String name, ItemListener listener, boolean includeValue) {

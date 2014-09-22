@@ -112,7 +112,7 @@ public class MapReplicationOperation extends AbstractOperation {
                 RecordStore recordStore = mapService.getRecordStore(getPartitionId(), mapName);
                 for (RecordReplicationInfo recordReplicationInfo : recordReplicationInfos) {
                     Data key = recordReplicationInfo.getKey();
-                    Record newRecord = mapService.createRecord(mapName, key, recordReplicationInfo.getValue(), -1, false);
+                    Record newRecord = mapService.createRecord(recordStore, mapName, key, recordReplicationInfo.getValue(), -1, false);
                     newRecord.setStatistics(recordReplicationInfo.getStatistics());
                     recordStore.putRecord(key, newRecord);
                     updateSizeEstimator(newRecord,recordStore);

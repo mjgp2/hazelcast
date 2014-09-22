@@ -18,6 +18,7 @@ package com.hazelcast.multimap.operations.client;
 
 import com.hazelcast.client.RetryableRequest;
 import com.hazelcast.multimap.MultiMapPortableHook;
+import com.hazelcast.multimap.MultiMapDataRecord;
 import com.hazelcast.multimap.MultiMapRecord;
 import com.hazelcast.multimap.operations.MultiMapResponse;
 import com.hazelcast.multimap.operations.MultiMapOperationFactory;
@@ -57,7 +58,11 @@ public class ValuesRequest extends MultiMapAllPartitionRequest implements Retrya
                 continue;
             }
             for (MultiMapRecord record: coll){
-                list.add(getClientEngine().toData(record.getObject()));
+                if ( record instanceof MultiMapDataRecord ) {
+                    list.add(getClientEngine().toData(((MultiMapDataRecord)record).loadObject()));
+                } else {
+                    list.add(getClientEngine().toData(record.getObject()));
+                }
             }
         }
         return new PortableCollection(list);

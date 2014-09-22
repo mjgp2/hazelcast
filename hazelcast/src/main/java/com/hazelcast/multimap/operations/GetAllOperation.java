@@ -35,6 +35,7 @@ public class GetAllOperation extends MultiMapKeyBasedOperation {
         super(name, dataKey);
     }
 
+    // WARNING: this copies ALL the values into the HEAP on a remote operation
     public void run() throws Exception {
         MultiMapWrapper wrapper = getOrCreateContainer().getMultiMapWrapper(dataKey);
         Collection coll = null;

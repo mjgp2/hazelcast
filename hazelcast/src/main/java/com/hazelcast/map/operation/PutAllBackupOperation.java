@@ -51,7 +51,7 @@ public class PutAllBackupOperation extends AbstractMapOperation implements Parti
             Data dataValue = entry.getValue();
             Record record = recordStore.getRecord(dataKey);
             if (record == null) {
-                record = mapService.createRecord(name, dataKey, dataValue, -1, false);
+                record = mapService.createRecord(recordStore, name, dataKey, dataValue, -1, false);
                 updateSizeEstimator(calculateRecordSize(record));
                 recordStore.putRecord(dataKey, record);
             } else {

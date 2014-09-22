@@ -26,6 +26,7 @@ import com.hazelcast.test.HazelcastTestSupport;
 import com.hazelcast.test.HazelcastJUnit4ClassRunner;
 import com.hazelcast.test.TestHazelcastInstanceFactory;
 import com.hazelcast.test.annotation.ParallelTest;
+
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
@@ -148,6 +149,7 @@ public class BasicQueueTest extends HazelcastTestSupport {
         assertTrue(stats1.getOwnedItemCount() == items || stats2.getOwnedItemCount() == items);
         assertFalse(stats1.getOwnedItemCount() == items && stats2.getOwnedItemCount() == items);
 
+        
         if (stats1.getOwnedItemCount() == items) {
             assertEquals(items, stats2.getBackupItemCount());
             assertEquals(0, stats1.getBackupItemCount());

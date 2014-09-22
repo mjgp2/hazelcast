@@ -19,6 +19,7 @@ package com.hazelcast.map.record;
 import com.hazelcast.config.InMemoryFormat;
 import com.hazelcast.config.MapConfig;
 import com.hazelcast.core.PartitioningStrategy;
+import com.hazelcast.map.RecordStore;
 import com.hazelcast.nio.serialization.Data;
 import com.hazelcast.nio.serialization.SerializationService;
 
@@ -45,12 +46,15 @@ public class DataRecordFactory implements RecordFactory<Data> {
     }
 
     @Override
-    public Record<Data> newRecord(Data key, Object value) {
+    public Record<Data> newRecord(RecordStore recordsStore, Data key, Object value) {
         Data v = serializationService.toData(value, partitionStrategy);
+        DataRecord dataRecord;
         if (optimizeQuery) {
-            return new CachedDataRecord(key, v, statisticsEnabled);
+            dataRecord = new CachedDataRecord(recordsStore, key, v, statisticsEnabled);
+        } else {
+            dataRecord = new DataRecord(recordsStore, key, v, statisticsEnabled);
         }
-        return new DataRecord(key, v, statisticsEnabled);
+        return dataRecord;
     }
 
     @Override

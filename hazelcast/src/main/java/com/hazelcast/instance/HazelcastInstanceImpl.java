@@ -49,6 +49,9 @@ import java.util.Collection;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
+import org.mapdb.DB;
+import org.mapdb.DBMaker;
+
 import static com.hazelcast.core.LifecycleEvent.LifecycleState.STARTING;
 
 /**
@@ -76,6 +79,8 @@ public final class HazelcastInstanceImpl implements HazelcastInstance {
     final ThreadGroup threadGroup;
 
     final ConcurrentMap<String, Object> userContext = new ConcurrentHashMap<String, Object>();
+    
+    final DB DB = DBMaker.newMemoryDirectDB().transactionDisable().cacheDisable().make();
 
     HazelcastInstanceImpl(String name, Config config, NodeContext nodeContext) throws Exception {
         this.name = name;
@@ -268,7 +273,11 @@ public final class HazelcastInstanceImpl implements HazelcastInstance {
 
     @Override
     public void shutdown() {
-        getLifecycleService().shutdown();
+        try {
+            getLifecycleService().shutdown();
+        } finally {
+            getMapDb().close();
+        }
     }
 
     @Override
@@ -325,5 +334,9 @@ public final class HazelcastInstanceImpl implements HazelcastInstance {
         sb.append(", node=").append(node.getThisAddress());
         sb.append('}');
         return sb.toString();
+    }
+
+    public DB getMapDb() {
+        return DB;
     }
 }

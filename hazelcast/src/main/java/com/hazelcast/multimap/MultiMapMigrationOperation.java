@@ -77,11 +77,11 @@ public class MultiMapMigrationOperation extends AbstractOperation {
                 int collSize = in.readInt();
                 Collection<MultiMapRecord> coll = new LinkedList<MultiMapRecord>();
                 for (int k = 0; k < collSize; k++) {
-                    MultiMapRecord record = new MultiMapRecord();
+                    MultiMapDataRecord record = new MultiMapDataRecord();
                     record.readData(in);
                     coll.add(record);
                 }
-                collections.put(key, new MultiMapWrapper(coll));
+                collections.put(key, new MultiMapWrapper(coll, null));
 
             }
             map.put(name, collections);

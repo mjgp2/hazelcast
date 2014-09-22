@@ -27,9 +27,9 @@ import java.io.IOException;
  */
 public class MultiMapRecord implements DataSerializable {
 
-    private long recordId = -1;
+    protected long recordId = -1;
 
-    private Object object;
+    protected Object object;
 
     public MultiMapRecord() {
     }
@@ -83,4 +83,5 @@ public class MultiMapRecord implements DataSerializable {
         recordId = in.readLong();
         object = in.readObject();
     }
+
 }
