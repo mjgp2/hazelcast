@@ -18,6 +18,7 @@ package com.hazelcast.multimap.impl.operations;
 
 import com.hazelcast.core.EntryEventType;
 import com.hazelcast.multimap.impl.MultiMapContainer;
+import com.hazelcast.multimap.impl.MultiMapDataRecord;
 import com.hazelcast.multimap.impl.MultiMapDataSerializerHook;
 import com.hazelcast.multimap.impl.MultiMapRecord;
 import com.hazelcast.nio.IOUtil;
@@ -25,6 +26,7 @@ import com.hazelcast.nio.ObjectDataInput;
 import com.hazelcast.nio.ObjectDataOutput;
 import com.hazelcast.nio.serialization.Data;
 import com.hazelcast.spi.Operation;
+
 import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
@@ -47,7 +49,7 @@ public class PutOperation extends MultiMapBackupAwareOperation {
     public void run() throws Exception {
         MultiMapContainer container = getOrCreateContainer();
         recordId = container.nextId();
-        MultiMapRecord record = new MultiMapRecord(recordId, isBinary() ? value : toObject(value));
+        MultiMapRecord record = isBinary() ? new MultiMapDataRecord(recordId, value) : new MultiMapRecord( recordId, toObject(value));
         Collection<MultiMapRecord> coll = container.getOrCreateMultiMapWrapper(dataKey).getCollection(false);
         if (index == -1) {
             response = coll.add(record);

@@ -17,13 +17,16 @@
 package com.hazelcast.multimap.impl.operations.client;
 
 import com.hazelcast.client.impl.client.RetryableRequest;
+import com.hazelcast.multimap.impl.MultiMapDataRecord;
 import com.hazelcast.multimap.impl.MultiMapPortableHook;
 import com.hazelcast.multimap.impl.MultiMapRecord;
 import com.hazelcast.multimap.impl.operations.MultiMapOperationFactory;
 import com.hazelcast.multimap.impl.operations.MultiMapResponse;
 import com.hazelcast.nio.serialization.Data;
+import com.hazelcast.nio.serialization.SerializationService;
 import com.hazelcast.spi.OperationFactory;
 import com.hazelcast.spi.impl.PortableCollection;
+
 import java.util.Collection;
 import java.util.LinkedList;
 import java.util.Map;
@@ -53,7 +56,11 @@ public class ValuesRequest extends MultiMapAllPartitionRequest implements Retrya
                 continue;
             }
             for (MultiMapRecord record : coll) {
-                list.add(serializationService.toData(record.getObject()));
+                 if ( record instanceof MultiMapDataRecord ) {
+                    list.add(serializationService.toData(((MultiMapDataRecord)record).loadObject()));
+                } else {
+                    list.add(serializationService.toData(record.getObject()));
+                }
             }
         }
         return new PortableCollection(list);

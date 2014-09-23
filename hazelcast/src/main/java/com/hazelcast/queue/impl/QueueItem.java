@@ -48,7 +48,7 @@ public class QueueItem implements IdentifiedDataSerializable, Comparable<QueueIt
 
     public Data getData() {
         if (data == null && container != null) {
-            data = container.getDataFromMap(itemId);
+            return container.getDataFromMap(itemId);
         }
         return data;
     }
@@ -72,7 +72,7 @@ public class QueueItem implements IdentifiedDataSerializable, Comparable<QueueIt
     @Override
     public void writeData(ObjectDataOutput out) throws IOException {
         out.writeLong(itemId);
-        IOUtil.writeNullableData(out, data);
+        IOUtil.writeNullableData(out, getData());
     }
 
     @Override
@@ -127,5 +127,13 @@ public class QueueItem implements IdentifiedDataSerializable, Comparable<QueueIt
         int result = (int) (itemId ^ (itemId >>> 32));
         result = 31 * result + (data != null ? data.hashCode() : 0);
         return result;
+    }
+    
+    public boolean noDataLocally() {
+        return data == null && ! container.hasDataInMap(itemId);
+    }
+
+    public void setContainer(QueueContainer container) {
+        this.container = container;
     }
 }

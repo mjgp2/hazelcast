@@ -29,6 +29,9 @@ public class EntrySetOperation extends MultiMapOperation {
         super(name);
     }
 
+    /**
+     * WARNING: This is an incredibly inefficient method, and loads EVERYTHING into the heap
+     */
     public void run() throws Exception {
         MultiMapContainer container = getOrCreateContainer();
         ((MultiMapService) getService()).getLocalMultiMapStatsImpl(name).incrementOtherOperations();
