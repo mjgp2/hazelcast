@@ -16,6 +16,8 @@
 
 package com.hazelcast.spi;
 
+import java.util.Map;
+
 import com.hazelcast.cluster.ClusterService;
 import com.hazelcast.config.Config;
 import com.hazelcast.core.HazelcastInstance;
@@ -27,6 +29,7 @@ import com.hazelcast.nio.serialization.Data;
 import com.hazelcast.nio.serialization.SerializationService;
 import com.hazelcast.partition.InternalPartitionService;
 import com.hazelcast.storage.DataRef;
+import com.hazelcast.storage.MapDbStorage;
 import com.hazelcast.storage.Storage;
 import com.hazelcast.transaction.TransactionManagerService;
 import com.hazelcast.wan.WanReplicationService;
@@ -83,4 +86,6 @@ public interface NodeEngine {
     <T extends SharedService> T getSharedService(String serviceName);
 
     Storage<DataRef> getOffHeapStorage();
+
+    MapDbStorage getMapDbStorage();
 }

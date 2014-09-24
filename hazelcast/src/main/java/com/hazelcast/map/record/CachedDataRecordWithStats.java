@@ -17,6 +17,7 @@
 package com.hazelcast.map.record;
 
 import com.hazelcast.nio.serialization.Data;
+import com.hazelcast.storage.MapDbStorage;
 
 /**
  * CachedDataRecordWithStats.
@@ -28,8 +29,8 @@ class CachedDataRecordWithStats extends DataRecordWithStats {
     public CachedDataRecordWithStats() {
     }
 
-    public CachedDataRecordWithStats(Data keyData, Data value) {
-        super(keyData, value);
+    public CachedDataRecordWithStats(MapDbStorage storage, Data keyData, Data value) {
+        super(storage, keyData, value);
     }
 
     public void setValue(Data o) {
