@@ -47,6 +47,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
+import org.mapdb.DB;
 import org.mapdb.HTreeMap;
 import org.mapdb.Serializer;
 
@@ -663,12 +664,12 @@ public class QueueContainer implements IdentifiedDataSerializable {
             System.err.println("WARNING! Old dataMap not destroyed");
             dataMap.close();
         }
-        dataMap = ((HazelcastInstanceImpl)nodeEngine.getHazelcastInstance()).getMapDb()
-                .createHashMap(mapDbName)
-                .keySerializer(Serializer.LONG)
-                .valueSerializer(new MapDBDataSerializer(nodeEngine.getSerializationService()))
-                .counterEnable()
-                .make();
+        dataMap = getMapDb()
+                    .createHashMap(mapDbName)
+                    .keySerializer(Serializer.LONG)
+                    .valueSerializer(new MapDBDataSerializer(nodeEngine.getSerializationService()))
+                    .counterEnable()
+                    .make();
         
         if ( itemQueue != null ) {
             for ( QueueItem item : itemQueue ) {
@@ -811,9 +812,14 @@ public class QueueContainer implements IdentifiedDataSerializable {
             txMap.clear();
         } finally { 
             if ( dataMap != null ) {
-                ((HazelcastInstanceImpl)nodeEngine.getHazelcastInstance()).getMapDb().delete(mapDbName);
+                getMapDb().delete(mapDbName);
             }
         }
+    }
+
+
+    private DB getMapDb() {
+        return ((HazelcastInstanceImpl)nodeEngine.getHazelcastInstance()).getMapDb();
     }
 
     @Override

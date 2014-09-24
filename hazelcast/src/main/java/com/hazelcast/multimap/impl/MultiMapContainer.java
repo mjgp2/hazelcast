@@ -41,6 +41,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 
+import org.mapdb.DB;
 import org.mapdb.HTreeMap;
 import org.mapdb.Serializer;
 
@@ -87,12 +88,16 @@ public class MultiMapContainer {
         this.config = nodeEngine.getConfig().findMultiMapConfig(name);
 
         this.mapDbName = name+'-'+partitionId+'-'+UUID.randomUUID();
-        this.dataMap = ((HazelcastInstanceImpl) nodeEngine.getHazelcastInstance()).getMapDb().createHashMap(mapDbName).keySerializer(Serializer.LONG).valueSerializer(new MapDBDataSerializer(nodeEngine.getSerializationService())).make();
+        this.dataMap = getMapDb().createHashMap(mapDbName).keySerializer(Serializer.LONG).valueSerializer(new MapDBDataSerializer(nodeEngine.getSerializationService())).make();
         
         this.lockNamespace = new DefaultObjectNamespace(MultiMapService.SERVICE_NAME, name);
         final LockService lockService = nodeEngine.getSharedService(LockService.SERVICE_NAME);
         this.lockStore = lockService == null ? null : lockService.createLockStore(partitionId, lockNamespace);
         this.creationTime = Clock.currentTimeMillis();
+    }
+
+    private DB getMapDb() {
+        return ((HazelcastInstanceImpl) nodeEngine.getHazelcastInstance()).getMapDb();
     }
 
     public HTreeMap<Long, Data> getDataMap() {
@@ -278,6 +283,7 @@ public class MultiMapContainer {
             lockService.clearLockStore(partitionId, lockNamespace);
         }
         multiMapWrappers.clear();
+        getMapDb().delete(mapDbName);
     }
 
     public void access() {
