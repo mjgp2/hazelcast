@@ -28,12 +28,10 @@ import com.hazelcast.spi.NodeEngine;
 /**
  * @author ali 3/1/13
  */
-public class MapDbCollectionWrapper implements Collection<MultiMapDataRecord> {
+public abstract class MapDbCollectionWrapper implements Collection<MultiMapDataRecord> {
 
-    
-
-    private final NodeEngine nodeEngine;
-    private final Collection<MultiMapDataRecord> delegate;
+	private final NodeEngine nodeEngine;
+    protected final Collection<MultiMapDataRecord> delegate;
     private MultiMapContainer container;
 
     public MapDbCollectionWrapper(Collection<MultiMapDataRecord> delegate, NodeEngine nodeEngine, MultiMapContainer container) {
@@ -60,7 +58,7 @@ public class MapDbCollectionWrapper implements Collection<MultiMapDataRecord> {
         }
 
         // set the hash
-        getData((MultiMapDataRecord) o);
+        setHash((MultiMapDataRecord) o);
 
         return delegate.contains(o);
     }
@@ -160,16 +158,14 @@ public class MapDbCollectionWrapper implements Collection<MultiMapDataRecord> {
     }
 
 
-    private Data getData(MultiMapDataRecord e) {
+    private void setHash(MultiMapDataRecord e) {
         if ( e.getObject() == null ) {
             throw new IllegalArgumentException("Trying to get loaded object but not loaded");
         }
-        Data d = (Data) (e.getObject() instanceof Data ? e.getObject() : nodeEngine.toData(e.getObject()));
         if ( e.getHash() == -1 ) {
+        	Data d = (Data) (e.getObject() instanceof Data ? e.getObject() : nodeEngine.toData(e.getObject()));
             e.setHash(d.hashCode());     
         }
-        e.setDataMap(container.getDataMap());
-        return d;
     }
 
     @Override

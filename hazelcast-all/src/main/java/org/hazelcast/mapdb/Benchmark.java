@@ -42,12 +42,12 @@ public class Benchmark {
 			10000);
 	static List<Address> members = new ArrayList<Address>();
 
-	static String str1 = getLongString(0, 5000);
-	static String str2 = getLongString(1, 5001);
+	static String str1 = getLongString(0, 50000);
+	static String str2 = getLongString(1, 50001);
 	static List<String> mmapCollection = Arrays.asList(str1,str2);
 
 	static int clients = 8;
-	static int servers = 4;
+	static int servers = 2;
 	static AtomicInteger count = new AtomicInteger();
 	static ReentrantLock lock = new ReentrantLock();
 
@@ -92,7 +92,7 @@ public class Benchmark {
 			if (r > 0 ) {
 				long soFar = System.currentTimeMillis() - startTime;
 				try {
-					System.out.println("CYCLES: "+cycles.get()+"  LOST: "+lost.get()+" ("+((float)lost.get()/removed.get())+"%)  OPS: "+( removed.get() / (soFar / 1000) ) +"/s");
+					System.out.println("CYCLES: "+cycles.get()+"  OPS: "+removed.get()+"  LOST: "+lost.get()+" ("+(100*(float)lost.get()/removed.get())+"%)  OPS: "+( removed.get() / (soFar / 1000) ) +"/s");
 				} catch (Exception e) {
 				}
 			}
@@ -213,8 +213,7 @@ public class Benchmark {
 						try {
 							Collection<Object> removed = mmap.remove(key);
 							
-							// TODO: sometimes the order of lists becomes jumbled!!
-							if (removed == null || removed.size() != 2 || ! new HashSet<String>(mmapCollection).equals(new HashSet<Object>(removed))) {
+							if (removed == null || removed.size() != 2 || ! mmapCollection.equals(removed)) {
 								System.err
 										.println("!!!!!!!!!!!!!!!!!!!! Wrong data returned from mmap");
 								lost.incrementAndGet();

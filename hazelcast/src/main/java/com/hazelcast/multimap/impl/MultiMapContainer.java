@@ -145,7 +145,11 @@ public class MultiMapContainer {
             
 
             if ( config.isBinary() ) {
-                coll = new MapDbCollectionWrapper((Collection<MultiMapDataRecord>) coll, nodeEngine, this);
+            	if ( coll instanceof Set ) {
+            		coll = new MapDbSetWrapper((Collection<MultiMapDataRecord>) coll, nodeEngine, this);
+            	} else {
+            		coll = new MapDbListWrapper((Collection<MultiMapDataRecord>) coll, nodeEngine, this);
+            	}
             }
             
             wrapper = new MultiMapWrapper(coll, this);
