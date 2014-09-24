@@ -358,7 +358,9 @@ public class DefaultRecordStore extends AbstractEvictableRecordStore implements 
                 updateSizeEstimator(calculateRecordHeapCost(record));
             }
         }
-        Set<Data> keysToDelete = records.keySet();
+        
+        // copy the keySet else the removeAll() actually removes the records from #records
+        Set<Data> keysToDelete = new HashSet<Data>(records.keySet());
         keysToDelete.removeAll(lockedRecords.keySet());
 
         mapDataStore.removeAll(keysToDelete);

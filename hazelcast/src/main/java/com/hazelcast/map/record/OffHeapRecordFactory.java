@@ -19,6 +19,7 @@ package com.hazelcast.map.record;
 import com.hazelcast.config.InMemoryFormat;
 import com.hazelcast.config.MapConfig;
 import com.hazelcast.core.PartitioningStrategy;
+import com.hazelcast.map.DefaultRecordStore;
 import com.hazelcast.nio.serialization.Data;
 import com.hazelcast.nio.serialization.SerializationService;
 import com.hazelcast.storage.DataRef;
@@ -65,4 +66,5 @@ public class OffHeapRecordFactory implements RecordFactory<Data> {
     public boolean isEquals(Object value1, Object value2) {
         return serializationService.toData(value1).equals(serializationService.toData(value2));
     }
+    
 }
