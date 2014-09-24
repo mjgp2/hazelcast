@@ -3,9 +3,12 @@ package com.hazelcast.map;
 import com.hazelcast.concurrent.lock.LockService;
 import com.hazelcast.concurrent.lock.LockStore;
 import com.hazelcast.config.InMemoryFormat;
+import com.hazelcast.instance.HazelcastInstanceImpl;
+import com.hazelcast.map.record.MapDbRecord;
 import com.hazelcast.map.record.Record;
 import com.hazelcast.map.record.RecordFactory;
 import com.hazelcast.nio.serialization.Data;
+import com.hazelcast.nio.serialization.MapDBDataSerializer;
 import com.hazelcast.nio.serialization.SerializationService;
 import com.hazelcast.query.impl.IndexService;
 import com.hazelcast.query.impl.QueryEntry;
@@ -14,12 +17,19 @@ import com.hazelcast.spi.DefaultObjectNamespace;
 import com.hazelcast.spi.NodeEngine;
 import com.hazelcast.util.Clock;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicLong;
+
+import org.mapdb.HTreeMap;
+import org.mapdb.Serializer;
 
 /**
  * Contains record store common parts.
@@ -35,7 +45,7 @@ abstract class AbstractRecordStore implements RecordStore {
     protected final SerializationService serializationService;
     protected final int partitionId;
     private SizeEstimator sizeEstimator;
-
+    
     protected AbstractRecordStore(MapContainer mapContainer, int partitionId) {
         this.mapContainer = mapContainer;
         this.partitionId = partitionId;
@@ -45,7 +55,6 @@ abstract class AbstractRecordStore implements RecordStore {
         this.recordFactory = mapContainer.getRecordFactory();
         this.sizeEstimator = SizeEstimators.createMapSizeEstimator();
     }
-
 
     @Override
     public String getName() {
@@ -201,7 +210,6 @@ abstract class AbstractRecordStore implements RecordStore {
     protected void clearRecordsMap(Map<Data, Record> excludeRecords) {
         InMemoryFormat inMemoryFormat = recordFactory.getStorageFormat();
         switch (inMemoryFormat) {
-            case BINARY:
             case OBJECT:
                 records.clear();
                 if (excludeRecords != null && !excludeRecords.isEmpty()) {
@@ -209,6 +217,7 @@ abstract class AbstractRecordStore implements RecordStore {
                 }
                 return;
 
+            case BINARY:
             case OFFHEAP:
                 Iterator<Record> iter = records.values().iterator();
                 while (iter.hasNext()) {
@@ -232,4 +241,5 @@ abstract class AbstractRecordStore implements RecordStore {
     public void setSizeEstimator(SizeEstimator sizeEstimator) {
         this.sizeEstimator = sizeEstimator;
     }
+
 }

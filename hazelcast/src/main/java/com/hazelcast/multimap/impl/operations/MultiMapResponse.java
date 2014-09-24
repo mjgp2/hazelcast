@@ -16,11 +16,13 @@
 
 package com.hazelcast.multimap.impl.operations;
 
+import com.hazelcast.multimap.impl.MultiMapDataRecord;
 import com.hazelcast.multimap.impl.MultiMapRecord;
 import com.hazelcast.nio.ObjectDataInput;
 import com.hazelcast.nio.ObjectDataOutput;
 import com.hazelcast.nio.serialization.DataSerializable;
 import com.hazelcast.spi.NodeEngine;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -81,7 +83,7 @@ public class MultiMapResponse implements DataSerializable {
         }
         Collection<MultiMapRecord> coll = new ArrayList(collection.size());
         for (Object obj : collection) {
-            MultiMapRecord record = nodeEngine.toObject(obj);
+            MultiMapDataRecord record = nodeEngine.toObject(obj);
             coll.add(record);
         }
         return coll;

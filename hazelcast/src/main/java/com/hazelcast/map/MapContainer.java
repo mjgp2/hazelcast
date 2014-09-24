@@ -120,7 +120,7 @@ public class MapContainer extends MapContainerSupport {
         RecordFactory recordFactory;
         switch (mapConfig.getInMemoryFormat()) {
             case BINARY:
-                recordFactory = new DataRecordFactory(mapConfig, nodeEngine.getSerializationService(), partitioningStrategy);
+                recordFactory = new DataRecordFactory(mapConfig, nodeEngine.getSerializationService(), partitioningStrategy, nodeEngine.getMapDbStorage());
                 break;
             case OBJECT:
                 recordFactory = new ObjectRecordFactory(mapConfig, nodeEngine.getSerializationService());

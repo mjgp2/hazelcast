@@ -19,8 +19,10 @@ package com.hazelcast.map.record;
 import com.hazelcast.config.InMemoryFormat;
 import com.hazelcast.config.MapConfig;
 import com.hazelcast.core.PartitioningStrategy;
+import com.hazelcast.map.DefaultRecordStore;
 import com.hazelcast.nio.serialization.Data;
 import com.hazelcast.nio.serialization.SerializationService;
+import com.hazelcast.storage.MapDbStorage;
 
 public class DataRecordFactory implements RecordFactory<Data> {
 
@@ -28,13 +30,15 @@ public class DataRecordFactory implements RecordFactory<Data> {
     private final PartitioningStrategy partitionStrategy;
     private final boolean optimizeQuery;
     private final boolean statisticsEnabled;
+    private MapDbStorage storage;
 
     public DataRecordFactory(MapConfig config, SerializationService serializationService,
-                             PartitioningStrategy partitionStrategy) {
+                             PartitioningStrategy partitionStrategy, MapDbStorage storage) {
         this.serializationService = serializationService;
         this.partitionStrategy = partitionStrategy;
         this.statisticsEnabled = config.isStatisticsEnabled();
         this.optimizeQuery = config.isOptimizeQueries();
+        this.storage = storage;
     }
 
     @Override
@@ -46,10 +50,10 @@ public class DataRecordFactory implements RecordFactory<Data> {
     public Record<Data> newRecord(Data key, Object value) {
         final Data data = serializationService.toData(value, partitionStrategy);
         if (optimizeQuery) {
-            return statisticsEnabled ? new CachedDataRecordWithStats(key, data)
-                    : new CachedDataRecord(key, data);
+            return statisticsEnabled ? new CachedDataRecordWithStats(storage, key, data)
+                    : new CachedDataRecord(storage, key, data);
         }
-        return statisticsEnabled ? new DataRecordWithStats(key, data) : new DataRecord(key, data);
+        return statisticsEnabled ? new DataRecordWithStats(storage, key, data) : new DataRecord(storage, key, data);
     }
 
     @Override

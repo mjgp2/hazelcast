@@ -46,6 +46,7 @@ import com.hazelcast.spi.SharedService;
 import com.hazelcast.spi.WaitNotifyService;
 import com.hazelcast.spi.annotation.PrivateApi;
 import com.hazelcast.storage.DataRef;
+import com.hazelcast.storage.MapDbStorage;
 import com.hazelcast.storage.Storage;
 import com.hazelcast.transaction.TransactionManagerService;
 import com.hazelcast.transaction.impl.TransactionManagerServiceImpl;
@@ -53,6 +54,7 @@ import com.hazelcast.wan.WanReplicationService;
 
 import java.util.Collection;
 import java.util.LinkedList;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 public class NodeEngineImpl implements NodeEngine {
@@ -65,13 +67,14 @@ public class NodeEngineImpl implements NodeEngine {
     final EventServiceImpl eventService;
     final WaitNotifyServiceImpl waitNotifyService;
 
-    private final Node node;
+    final Node node;
     private final ILogger logger;
 
     private final ServiceManager serviceManager;
     private final TransactionManagerServiceImpl transactionManagerService;
     private final ProxyServiceImpl proxyService;
     private final WanReplicationService wanReplicationService;
+    private MapDbStorage mapDbStorage;
 
     public NodeEngineImpl(Node node) {
         this.node = node;
@@ -84,6 +87,7 @@ public class NodeEngineImpl implements NodeEngine {
         waitNotifyService = new WaitNotifyServiceImpl(this);
         transactionManagerService = new TransactionManagerServiceImpl(this);
         wanReplicationService = node.initializer.geWanReplicationService();
+        mapDbStorage = new MapDbStorageImpl(this);
     }
 
     @PrivateApi
@@ -379,6 +383,12 @@ public class NodeEngineImpl implements NodeEngine {
     public Storage<DataRef> getOffHeapStorage() {
         return node.initializer.getOffHeapStorage();
     }
+    
+
+    @Override
+    public MapDbStorage getMapDbStorage() {
+        return mapDbStorage;
+    }
 
     @PrivateApi
     public void shutdown(final boolean terminate) {
@@ -390,5 +400,6 @@ public class NodeEngineImpl implements NodeEngine {
         operationService.shutdown();
         wanReplicationService.shutdown();
         executionService.shutdown();
+        mapDbStorage.destroy();
     }
 }
