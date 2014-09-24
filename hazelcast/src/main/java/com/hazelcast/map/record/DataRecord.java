@@ -17,17 +17,28 @@
 package com.hazelcast.map.record;
 
 import com.hazelcast.nio.serialization.Data;
+import com.hazelcast.storage.MapDbStorage;
 
-class DataRecord extends AbstractRecord<Data> {
+class DataRecord extends AbstractRecord<Data> implements MapDbRecord {
 
-    protected Data value;
+    // TODO: guess
+    private static final long MAP_DB_ENTRY_HEAP_SIZE = 32;
 
-    DataRecord(Data keyData, Data value) {
+    private MapDbStorage storage;
+    private long dataId = -1;
+
+    DataRecord(MapDbStorage storage, Data keyData, Data value) {
         super(keyData);
-        this.value = value;
+        this.storage = storage;
+        setValue(value);
     }
 
     DataRecord() {
+    }
+    
+    @Override
+    public long getDataId(){
+        return dataId;
     }
 
     /*
@@ -37,22 +48,41 @@ class DataRecord extends AbstractRecord<Data> {
     @Override
     public long getCost() {
         long size = super.getCost();
-        final int objectReferenceInBytes = 4;
         // add value size.
-        size += objectReferenceInBytes + (value == null ? 0 : value.getHeapCost());
+        size += MAP_DB_ENTRY_HEAP_SIZE;
         return size;
     }
 
     public Data getValue() {
-        return value;
+        if ( dataId >= 0 ) {
+            return storage.get(dataId);
+        }
+        return null;
     }
 
     public void setValue(Data o) {
-        value = o;
+        
+        // delete the old value out of mapdb
+        invalidate();
+        
+        if ( o == null ) {
+            return;
+        }
+    
+        // add in the new value
+        dataId = storage.put(o);
     }
 
     public void invalidate() {
-        value = null;
+        if ( dataId >= 0 ) {
+            storage.remove(dataId);
+            dataId = -1;
+        }
+    }
+    
+    @Override
+    public String toString() {
+        return "DataRecord{" + "key=" + key + ",dataId="+dataId+'}';
     }
 
 }

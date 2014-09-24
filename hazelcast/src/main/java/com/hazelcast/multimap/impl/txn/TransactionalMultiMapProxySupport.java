@@ -17,6 +17,7 @@
 package com.hazelcast.multimap.impl.txn;
 
 import com.hazelcast.config.MultiMapConfig;
+import com.hazelcast.multimap.impl.MultiMapDataRecord;
 import com.hazelcast.multimap.impl.MultiMapRecord;
 import com.hazelcast.multimap.impl.MultiMapService;
 import com.hazelcast.multimap.impl.operations.CountOperation;
@@ -33,6 +34,7 @@ import com.hazelcast.transaction.impl.Transaction;
 import com.hazelcast.transaction.impl.TransactionSupport;
 import com.hazelcast.util.ExceptionUtil;
 import com.hazelcast.util.ThreadUtil;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.ConcurrentModificationException;
@@ -91,7 +93,7 @@ public abstract class TransactionalMultiMapProxySupport extends AbstractDistribu
         } else {
             log = (MultiMapTransactionLog) tx.getTransactionLog(getTxLogKey(key));
         }
-        MultiMapRecord record = new MultiMapRecord(config.isBinary() ? value : getNodeEngine().toObject(value));
+        MultiMapRecord record = config.isBinary() ? new MultiMapDataRecord(value) : new MultiMapRecord( getNodeEngine().toObject(value));
         if (coll.add(record)) {
             if (recordId == -1) {
                 recordId = nextId(key);
@@ -124,7 +126,7 @@ public abstract class TransactionalMultiMapProxySupport extends AbstractDistribu
         } else {
             log = (MultiMapTransactionLog) tx.getTransactionLog(getTxLogKey(key));
         }
-        MultiMapRecord record = new MultiMapRecord(config.isBinary() ? value : getNodeEngine().toObject(value));
+        MultiMapRecord record = config.isBinary() ? new MultiMapDataRecord(value) : new MultiMapRecord( getNodeEngine().toObject(value));
         Iterator<MultiMapRecord> iterator = coll.iterator();
         long recordId = -1;
         while (iterator.hasNext()) {

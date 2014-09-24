@@ -205,6 +205,17 @@
     </build>
 
     <dependencies>
+    
+    
+    	<!-- Added MapDB impl deps -->
+        <dependency>
+            <groupId>org.mapdb</groupId>
+            <artifactId>mapdb</artifactId>
+            <version>1.0.4</version>
+        </dependency>
+        <!-- End MapDB impl deps -->
+    
+    
         <dependency>
             <groupId>log4j</groupId>
             <artifactId>log4j</artifactId>

@@ -17,6 +17,7 @@
 package com.hazelcast.map.record;
 
 import com.hazelcast.nio.serialization.Data;
+import com.hazelcast.storage.MapDbStorage;
 
 /**
  * CachedDataRecord.
@@ -28,8 +29,8 @@ class CachedDataRecord extends DataRecord {
     CachedDataRecord() {
     }
 
-    CachedDataRecord(Data keyData, Data value) {
-        super(keyData, value);
+    CachedDataRecord(MapDbStorage store, Data keyData, Data value) {
+        super(store, keyData, value);
     }
 
     public void setValue(Data o) {

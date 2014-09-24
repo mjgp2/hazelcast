@@ -16,6 +16,7 @@
 
 package com.hazelcast.multimap.impl.operations;
 
+import com.hazelcast.multimap.impl.MultiMapDataRecord;
 import com.hazelcast.multimap.impl.MultiMapDataSerializerHook;
 import com.hazelcast.multimap.impl.MultiMapRecord;
 import com.hazelcast.nio.IOUtil;
@@ -23,6 +24,7 @@ import com.hazelcast.nio.ObjectDataInput;
 import com.hazelcast.nio.ObjectDataOutput;
 import com.hazelcast.nio.serialization.Data;
 import com.hazelcast.spi.BackupOperation;
+
 import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
@@ -47,7 +49,7 @@ public class PutBackupOperation extends MultiMapKeyBasedOperation implements Bac
 
     public void run() throws Exception {
 
-        MultiMapRecord record = new MultiMapRecord(recordId, isBinary() ? value : toObject(value));
+        MultiMapRecord record = isBinary() ? new MultiMapDataRecord(recordId, value) : new MultiMapRecord( recordId, toObject(value));
         Collection<MultiMapRecord> coll = getOrCreateCollectionWrapper().getCollection(false);
         if (index == -1) {
             response = coll.add(record);

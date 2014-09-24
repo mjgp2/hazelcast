@@ -40,6 +40,9 @@ public class GetAllOperation extends AbstractMapOperation implements PartitionAw
     public GetAllOperation() {
     }
 
+    /**
+     * WARNING: this copies ALL the values into the HEAP on a remote operation
+     */
     public void run() {
         int partitionId = getPartitionId();
         RecordStore recordStore = mapService.getMapServiceContext().getRecordStore(partitionId, name);
